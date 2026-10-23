@@ -1238,7 +1238,13 @@ export class GlDetailsReviewModePanel extends LitElement {
 				<code-icon icon=${collapsed ? 'chevron-right' : 'chevron-down'}></code-icon>
 			</button>
 			<div class="review-walk__body" role="status">
-				<div class="review-walk__title">${title}${collapsed && suffix ? ` · ${viewed}` : ''}</div>
+				<div class="review-walk__title">
+					${title}${
+						collapsed && suffix
+							? html` <span class="review-pane-header__description">${viewed}</span>`
+							: nothing
+					}
+				</div>
 				${collapsed ? nothing : detail}
 			</div>
 			${active != null ? this.renderReadingActions(active) : nothing}

@@ -226,6 +226,7 @@ export const reviewModePanelStyles = css`
 
 	.review-pane-header__description {
 		overflow: hidden;
+		font-size: var(--gl-font-sm);
 		font-weight: 400;
 		color: var(--vscode-descriptionForeground);
 		text-overflow: ellipsis;
