@@ -1241,7 +1241,7 @@ export class GlDetailsReviewModePanel extends LitElement {
 				<div class="review-walk__title">
 					${title}${
 						collapsed && suffix
-							? html` <span class="review-pane-header__description">${viewed}</span>`
+							? html`<span class="review-pane-header__description">${viewed}</span>`
 							: nothing
 					}
 				</div>

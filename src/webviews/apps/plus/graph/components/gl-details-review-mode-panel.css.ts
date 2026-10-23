@@ -200,6 +200,10 @@ export const reviewModePanelStyles = css`
 		margin-left: var(--gl-space-4);
 	}
 
+	.review-walk__title > .review-pane-header__description {
+		margin-left: 2em;
+	}
+
 	.review-pane-header--collapsed .review-walk__title {
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -224,7 +228,10 @@ export const reviewModePanelStyles = css`
 		outline-offset: -1px;
 	}
 
+	/* The count sits well off the title — 2em of its own size — so the two read as a name and a figure.
+	   In the Findings header the flex gap is part of it; in the checklist's it is inline text */
 	.review-pane-header__description {
+		margin-left: calc(2em - var(--gl-space-4));
 		overflow: hidden;
 		font-size: var(--gl-font-sm);
 		font-weight: 400;
