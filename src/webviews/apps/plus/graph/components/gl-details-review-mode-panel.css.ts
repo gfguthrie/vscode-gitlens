@@ -156,7 +156,8 @@ export const reviewModePanelStyles = css`
 		gap: var(--gl-space-4);
 		align-items: center;
 		width: 100%;
-		height: 2.2rem;
+		/* Tall enough that its title sits as far below the divider as the checklist header's does */
+		height: 3rem;
 		padding: 0 var(--gl-space-8) 0 var(--gl-space-2);
 		font-family: inherit;
 		font-size: var(--gl-font-sm);
