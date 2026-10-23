@@ -112,13 +112,8 @@ export const reviewModePanelStyles = css`
 		display: none;
 	}
 
-	/* Inside a pane the reading strip's text and the plan's document column start on that same edge too:
-	   the strip's margin leaves --gl-space-12 to its text (margin + border + padding), and the document
-	   inset follows the strip, as it does outside the panes (the group headings' chevron sits 2px in) */
-	.review-split__body .review-walk {
-		margin-left: calc(var(--gl-space-12) - var(--gl-border-width) - var(--gl-space-10));
-	}
-
+	/* Inside a pane the plan's document column starts on that same edge too (the group headings' chevron
+	   sits 2px in) */
 	.review-split__body .scope-files__tree--flow {
 		--review-document-inset: calc(var(--gl-space-12) + var(--gl-space-2));
 	}
@@ -182,6 +177,51 @@ export const reviewModePanelStyles = css`
 
 	.review-pane-header__title {
 		flex: none;
+	}
+
+	/* The checklist's header is the reading strip: the strip's own type and its steps, at the pane header's
+	   edges — chevron, then the text where every pane's title starts */
+	.review-pane-header--checklist {
+		height: auto;
+		min-height: 2.2rem;
+		padding-block: var(--gl-space-4);
+		font-size: var(--gl-font-base);
+		font-weight: 400;
+		color: var(--vscode-foreground);
+		text-transform: none;
+	}
+
+	.review-pane-header--checklist .review-walk__body {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
+	.review-pane-header--checklist .review-walk__actions {
+		margin-left: var(--gl-space-4);
+	}
+
+	.review-pane-header--collapsed .review-walk__title {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.review-pane-header__toggle {
+		display: inline-flex;
+		flex: none;
+		align-items: center;
+		justify-content: center;
+		padding: 0;
+		color: inherit;
+		cursor: pointer;
+		background: none;
+		border: none;
+		border-radius: var(--gl-radius-sm);
+	}
+
+	.review-pane-header__toggle:focus-visible {
+		outline: 1px solid var(--vscode-focusBorder);
+		outline-offset: -1px;
 	}
 
 	.review-pane-header__description {

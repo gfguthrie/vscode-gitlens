@@ -531,14 +531,10 @@ export class GlDetailsReviewModePanel extends LitElement {
 			?disabled=${folded != null}
 		>
 			<div slot="start" class="review-split__files">
-				${this.renderPaneHeader(
-					'files',
-					l10n.t('Checklist'),
-					progress.total > 0
-						? l10n.t('{viewed}/{total} viewed', { viewed: progress.viewed, total: progress.total })
-						: undefined,
-				)}
-				<div class="scope-files review-split__body" ?hidden=${files}>${this.renderFileCuration()}</div>
+				${this.renderChecklistHeader(progress)}
+				<div class="scope-files review-split__body" ?hidden=${files}>
+					${this.renderFileCuration(undefined, true)}
+				</div>
 			</div>
 			<div slot="end" class="review-split__ai">
 				${this.renderPaneHeader('findings', l10n.t('Findings'), findingsDescription)}
@@ -1070,10 +1066,10 @@ export class GlDetailsReviewModePanel extends LitElement {
 		);
 	}
 
-	private renderReadingOrEnding() {
+	private renderReadingOrEnding(readingInHeader = false) {
 		const progress = getReviewProgress(this.session, this.files);
 		if (!isReviewComplete(progress)) {
-			if (progress.total === 0) return nothing;
+			if (progress.total === 0 || readingInHeader) return nothing;
 
 			return this.renderReadingStrip(progress);
 		}
@@ -1165,32 +1161,87 @@ export class GlDetailsReviewModePanel extends LitElement {
 				</div>
 				<div class="review-walk__file">${active}</div>
 			</div>
-			<div class="review-walk__actions">
-				<gl-button
-					appearance="toolbar"
-					density="compact"
-					tooltip=${this.withReadingShortcut(l10n.t('Previous File in Review'), 'previous')}
-					@click=${() => this.handleReadingStep('previous', active)}
-				>
-					<code-icon icon="arrow-left"></code-icon>
-				</gl-button>
-				<gl-button
-					appearance="toolbar"
-					density="compact"
-					tooltip=${this.withReadingShortcut(l10n.t('Mark Viewed & Next'), 'markViewed')}
-					@click=${() => this.handleReadingStep('markViewed', active)}
-				>
-					<code-icon icon="check" slot="prefix"></code-icon>${l10n.t('Mark Viewed & Next')}
-				</gl-button>
-				<gl-button
-					appearance="toolbar"
-					density="compact"
-					tooltip=${this.withReadingShortcut(l10n.t('Next File in Review'), 'next')}
-					@click=${() => this.handleReadingStep('next', active)}
-				>
-					<code-icon icon="arrow-right"></code-icon>
-				</gl-button>
+			${this.renderReadingActions(active)}
+		</div>`;
+	}
+
+	private renderReadingActions(active: string) {
+		// The buttons sit in a header that folds on click — a step must not fold it
+		return html`<div class="review-walk__actions" @click=${(e: Event) => e.stopPropagation()}>
+			<gl-button
+				appearance="toolbar"
+				density="compact"
+				tooltip=${this.withReadingShortcut(l10n.t('Previous File in Review'), 'previous')}
+				@click=${() => this.handleReadingStep('previous', active)}
+			>
+				<code-icon icon="arrow-left"></code-icon>
+			</gl-button>
+			<gl-button
+				appearance="toolbar"
+				density="compact"
+				tooltip=${this.withReadingShortcut(l10n.t('Mark Viewed & Next'), 'markViewed')}
+				@click=${() => this.handleReadingStep('markViewed', active)}
+			>
+				<code-icon icon="check" slot="prefix"></code-icon>${l10n.t('Mark Viewed & Next')}
+			</gl-button>
+			<gl-button
+				appearance="toolbar"
+				density="compact"
+				tooltip=${this.withReadingShortcut(l10n.t('Next File in Review'), 'next')}
+				@click=${() => this.handleReadingStep('next', active)}
+			>
+				<code-icon icon="arrow-right"></code-icon>
+			</gl-button>
+		</div>`;
+	}
+
+	/** The checklist pane's header is the reading strip, beside the chevron that folds the pane: the file
+	 *  being read and its steps, or the progress, or the review's end. Folded, it keeps to one line — what
+	 *  is being read and how many files are viewed — and the steps stay at hand. */
+	private renderChecklistHeader(progress: ReviewProgress) {
+		const collapsed = this._filesCollapsed;
+		const paths = this.readingOrder;
+		const index = this.reading?.active != null ? paths.indexOf(this.reading.active) : -1;
+		const active = index >= 0 ? paths[index] : undefined;
+		const viewed = l10n.t('{viewed}/{total} viewed', { viewed: progress.viewed, total: progress.total });
+
+		let title: string;
+		let detail: TemplateResult | typeof nothing = nothing;
+		let suffix = false;
+		if (active != null) {
+			title = l10n.t('Reading {index} of {total}', { index: index + 1, total: paths.length });
+			detail = html`<div class="review-walk__file">${active}</div>`;
+			suffix = true;
+		} else if (progress.total === 0) {
+			title = l10n.t('Checklist');
+		} else if (isReviewComplete(progress)) {
+			title = l10n.t('Review complete');
+			suffix = true;
+		} else {
+			title = l10n.t('{viewed} of {total} viewed', { viewed: progress.viewed, total: progress.total });
+			detail = html`<div class="review-walk__hint">${this.renderReadingHint()}</div>`;
+		}
+
+		return html`<div
+			class="review-pane-header review-pane-header--checklist${collapsed ? ' review-pane-header--collapsed' : ''}"
+			@click=${() => this.togglePane('files')}
+		>
+			<button
+				class="review-pane-header__toggle"
+				aria-expanded=${collapsed ? 'false' : 'true'}
+				aria-label=${collapsed ? l10n.t('Expand Checklist') : l10n.t('Collapse Checklist')}
+				@click=${(e: Event) => {
+					e.stopPropagation();
+					this.togglePane('files');
+				}}
+			>
+				<code-icon icon=${collapsed ? 'chevron-right' : 'chevron-down'}></code-icon>
+			</button>
+			<div class="review-walk__body" role="status">
+				<div class="review-walk__title">${title}${collapsed && suffix ? ` · ${viewed}` : ''}</div>
+				${collapsed ? nothing : detail}
 			</div>
+			${active != null ? this.renderReadingActions(active) : nothing}
 		</div>`;
 	}
 
@@ -1285,7 +1336,9 @@ export class GlDetailsReviewModePanel extends LitElement {
 		return value;
 	}
 
-	private renderFileCuration(files?: readonly ScopeFile[]) {
+	/** @param readingInHeader the reading strip is the pane's header (see {@link renderChecklistHeader}), so
+	 *  the body leaves it out and keeps only the review's ending */
+	private renderFileCuration(files?: readonly ScopeFile[], readingInHeader = false) {
 		// Always render the section — when there are no files, gl-file-tree-pane shows the
 		// `empty-text` message inside its body so the section header / scope context stays
 		// visible (consistent with the compare empty-state pattern).
@@ -1304,9 +1357,9 @@ export class GlDetailsReviewModePanel extends LitElement {
 			}
 		}
 
-		if (this.orient != null) return this.renderOrientPlan(renderFiles, checkableStates);
+		if (this.orient != null) return this.renderOrientPlan(renderFiles, checkableStates, readingInHeader);
 
-		return html`${this.renderReadingOrEnding()}
+		return html`${this.renderReadingOrEnding(readingInHeader)}
 			<div class="scope-files__tree">
 				<webview-pane-group flexible>
 					<gl-file-tree-pane
@@ -1376,12 +1429,13 @@ export class GlDetailsReviewModePanel extends LitElement {
 	private renderOrientPlan(
 		renderFiles: readonly ScopeFile[],
 		checkableStates: Map<string, { state?: 'checked'; disabled?: boolean; disabledReason?: string }>,
+		readingInHeader = false,
 	) {
 		const orient = this.orient!;
 		const panes = this.getOrientPanes(orient, renderFiles);
 		this._orientPaneKeys = panes.map(pane => pane.label);
 
-		return html`${this.renderReadingOrEnding()}
+		return html`${this.renderReadingOrEnding(readingInHeader)}
 			<div class="scope-files__tree scope-files__tree--flow">
 				<div class="review-orient">
 					<div class="review-orient__body">
