@@ -205,6 +205,25 @@ export const reviewModePanelStyles = css`
 		margin-left: 2em;
 	}
 
+	/* Folded, the file being read moves next to its steps: the title keeps its width, the path takes
+	   what is left and gives way from its start, so the file's name stays readable beside the buttons */
+	.review-pane-header--collapsed .review-walk__body {
+		flex: 0 1 auto;
+	}
+
+	.review-pane-header__file {
+		flex: 1 1 0;
+		min-width: 0;
+		margin-left: 2em;
+		overflow: hidden;
+		font-size: var(--gl-font-sm);
+		color: var(--vscode-descriptionForeground);
+		text-align: right;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		direction: rtl;
+	}
+
 	.review-pane-header--collapsed .review-walk__title {
 		overflow: hidden;
 		text-overflow: ellipsis;

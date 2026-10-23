@@ -1247,6 +1247,11 @@ export class GlDetailsReviewModePanel extends LitElement {
 				</div>
 				${collapsed ? nothing : detail}
 			</div>
+			${
+				collapsed && active != null
+					? html`<span class="review-pane-header__file" title=${active}>${active}</span>`
+					: nothing
+			}
 			${active != null ? this.renderReadingActions(active) : nothing}
 		</div>`;
 	}
