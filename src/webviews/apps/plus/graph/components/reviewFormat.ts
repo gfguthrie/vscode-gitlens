@@ -7,7 +7,7 @@ import type {
 } from '@gitlens/ai/models/results.js';
 import { getReviewFindingLocations } from '@gitlens/ai/models/results.js';
 import type { ReviewFindingNote } from '../../../../plus/graph/graphService.js';
-import type { ReviewFindingState } from './reviewSession.js';
+import type { ReviewComment, ReviewFindingState } from './reviewSession.js';
 import { userFocusAreaId } from './reviewSession.js';
 
 export interface ReviewFormatOptions {
@@ -44,12 +44,16 @@ function noteAuthor(author: ReviewFindingNote['author']): string {
 	return author === 'agent' ? l10n.t('Agent') : l10n.t('Reviewer');
 }
 
+function isAgentOpened(finding: AIReviewFinding): boolean {
+	return (finding as ReviewComment).author === 'agent';
+}
+
 function formatFindingLines(finding: AIReviewFinding, notes?: readonly ReviewFindingNote[]): string[] {
 	const lines: string[] = [];
-	// The reader's own comment has no severity or title — it is the reviewer speaking
+	// A comment of the review's own has no severity or title — it is the reviewer (or the agent) speaking
 	lines.push(
 		finding.source === 'user'
-			? `### ${l10n.t("Reviewer's comment")}`
+			? `### ${isAgentOpened(finding) ? l10n.t("Agent's comment") : l10n.t("Reviewer's comment")}`
 			: `### ${severityPrefix(finding.severity)} ${getReviewFindingTitle(finding)}`,
 	);
 	lines.push('');
@@ -146,7 +150,9 @@ export function formatFindingForAgentContext(
 	const isReader = finding.source === 'user';
 	const head = [
 		`id: ${finding.id}`,
-		isReader ? `[${l10n.t('REVIEWER COMMENT')}]` : `[${severityLabel[finding.severity]}]`,
+		isReader
+			? `[${isAgentOpened(finding) ? l10n.t('AGENT COMMENT') : l10n.t('REVIEWER COMMENT')}]`
+			: `[${severityLabel[finding.severity]}]`,
 		state ?? 'open',
 		location,
 	]

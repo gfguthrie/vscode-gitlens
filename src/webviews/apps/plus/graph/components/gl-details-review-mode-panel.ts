@@ -64,6 +64,7 @@ import {
 	getReviewFocusAreaLabel,
 } from './reviewFormat.js';
 import type {
+	ReviewComment,
 	ReviewFileFindings,
 	ReviewFileIdentity,
 	ReviewFindingCounts,
@@ -2270,7 +2271,7 @@ export class GlDetailsReviewModePanel extends LitElement {
 				${
 					isReader
 						? html`<span class="review-finding__title review-finding__title--reader"
-								>${l10n.t('You')}</span
+								>${(finding as ReviewComment).author === 'agent' ? l10n.t('Agent') : l10n.t('You')}</span
 							>`
 						: html`<span class="review-finding__severity review-finding__severity--${finding.severity}">
 									${severityLabel}

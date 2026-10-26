@@ -398,6 +398,8 @@ export interface ReviewThreadItem {
 	description: string;
 	state: ReviewThreadState;
 	source?: 'agent' | 'user';
+	/** Who opened a comment of the review's own (`source: 'user'`) when it wasn't the reader */
+	author?: 'agent';
 	notes?: ReviewFindingNote[];
 }
 
@@ -419,6 +421,7 @@ export type ReviewThreadAction =
 	| 'editComment'
 	| 'editNote'
 	| 'delete'
+	| 'deleteOpening'
 	| 'deleteNote';
 
 /** Where the reader opened a thread of their own: a review file and the lines on the diff's right side. */
@@ -431,7 +434,9 @@ export interface ReviewCommentPlace {
 /** Actions taken on threads from the editor, append-only with a sequence so a panel that was hidden
  *  for a while applies exactly the ones it hasn't. A `reply` carries its text; a `comment` — a thread the
  *  reader opened on a line — carries its text and place, and its `findingId` is the new comment's. `delete`
- *  removes the finding with all its threads; `editNote` and `deleteNote` act on one note in them, by `noteId`. */
+ *  removes the finding with all its threads; `deleteOpening` only its opening words, the first reply taking
+ *  their place (the finding goes when there is none); `editNote` and `deleteNote` act on one note, by
+ *  `noteId`. */
 export interface ReviewThreadActionsState {
 	actions: {
 		seq: number;

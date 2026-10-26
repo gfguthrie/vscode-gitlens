@@ -28,7 +28,7 @@ export interface ReviewSession {
 	readonly notes: ReadonlyMap<string, readonly ReviewFindingNote[]>;
 	/** The reader's own comments on lines of the diff, in the order they were written — findings with
 	 *  source `user`. They belong to the review, not to an AI run: a new run or a discard keeps them. */
-	readonly comments?: readonly AIReviewFinding[];
+	readonly comments?: readonly ReviewComment[];
 	/** A reading order the reader took from an orient pass; files not in it follow in tree order. */
 	readonly order?: readonly string[];
 }
@@ -109,6 +109,7 @@ export function getReviewThreadItems(
 					description: finding.description,
 					state: session?.findingStates.get(finding.id) ?? 'open',
 					...(finding.source != null ? { source: finding.source } : {}),
+					...((finding as ReviewComment).author != null ? { author: (finding as ReviewComment).author } : {}),
 					...(notes?.length ? { notes: [...notes] } : {}),
 				});
 			}
@@ -404,6 +405,11 @@ export function withoutFindings(session: ReviewSession): ReviewSession {
 	return { ...session, findingStates: findingStates, notes: notes };
 }
 
+/** A comment of the review's own (`source: 'user'`). `author` is who wrote its opening words when it isn't
+ *  the reader — a thread whose first comment was deleted is opened by the reply that followed, which may
+ *  be the agent's. */
+export type ReviewComment = AIReviewFinding & { readonly author?: 'agent' };
+
 /** The focus area the reader's comments show under — ahead of the AI's, since they are the reader's own word. */
 export const userFocusAreaId = 'user';
 
@@ -421,7 +427,7 @@ export function createReviewComment(id: string, place: ReviewCommentPlace, text:
 	};
 }
 
-export function withReviewComment(session: ReviewSession, comment: AIReviewFinding): ReviewSession {
+export function withReviewComment(session: ReviewSession, comment: ReviewComment): ReviewSession {
 	const text = comment.description.trim();
 	if (!text || session.comments?.some(c => c.id === comment.id)) return session;
 
@@ -479,7 +485,7 @@ export function getReviewReplies(
 let lastWithComments:
 	| {
 			result: AIReviewResult | undefined;
-			comments: readonly AIReviewFinding[] | undefined;
+			comments: readonly ReviewComment[] | undefined;
 			notes: ReviewSession['notes'] | undefined;
 			merged: AIReviewResult | undefined;
 	  }

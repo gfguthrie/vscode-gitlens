@@ -124,12 +124,13 @@ function applyItem(thread: CommentThread, item: ReviewThreadItem): void {
 	const isUser = item.source === 'user';
 	let first: Comment;
 	if (isUser) {
-		// The reader's own comment: their words as they wrote them, no severity or title over them
+		// A comment of the review's own: the words as written, no severity or title over them — the reader's,
+		// or the agent's when its reply took over a thread whose opening was deleted
 		first = {
 			body: new MarkdownString(item.description),
 			mode: CommentMode.Preview,
-			author: { name: l10n.t('You') },
-			contextValue: 'user-comment',
+			author: { name: item.author === 'agent' ? l10n.t('Review in Repo (agent)') : l10n.t('You') },
+			contextValue: item.author === 'agent' ? 'agent-comment' : 'user-comment',
 		};
 	} else {
 		first = {
@@ -336,20 +337,25 @@ export function saveReviewComment(comment: Comment | undefined): void {
 	}
 }
 
-/** Removes a comment from its thread: a note goes by itself; the first comment is the finding, so it takes
- *  the whole thread — and the finding's threads elsewhere — with it. The editor changes at once, the review
- *  follows. A reply still on its way to the review has nothing to be removed by yet and stays. */
+/** Removes a comment from its thread. A reply goes by itself. The first comment is the finding's opening:
+ *  with replies after it, the first of them opens the thread from then on; alone, it takes the thread — and
+ *  the finding's threads elsewhere — with it. The editor changes at once, the review follows. A reply still
+ *  on its way to the review has nothing to be removed by yet and stays. */
 export function deleteReviewComment(comment: Comment | undefined): void {
 	const found = comment != null ? commentRefs.get(comment) : undefined;
 	if (comment == null || found == null) return;
 
-	if (found.noteId == null) {
+	if (found.noteId == null && found.thread.comments.length <= 1) {
 		deleteFindingThreads(found.findingId);
 		return;
 	}
 
 	found.thread.comments = found.thread.comments.filter(c => c !== comment);
-	owner?.reviewThreadAction(found.findingId, 'deleteNote', undefined, undefined, found.noteId);
+	if (found.noteId == null) {
+		owner?.reviewThreadAction(found.findingId, 'deleteOpening');
+	} else {
+		owner?.reviewThreadAction(found.findingId, 'deleteNote', undefined, undefined, found.noteId);
+	}
 }
 
 /** Removes the thread's finding — every thread it has, with all their comments. */

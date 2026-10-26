@@ -1,5 +1,6 @@
 import * as assert from 'assert';
 import type { ReactiveController } from 'lit';
+import type { AIReviewResult } from '@gitlens/ai/models/results.js';
 import { uncommitted } from '@gitlens/git/models/revision.js';
 import type { Wip } from '../../../../../commitDetails/protocol.js';
 import type {
@@ -18,7 +19,8 @@ import { DetailsActions } from '../detailsActions.js';
 import type { DetailsState } from '../detailsState.js';
 import { createDetailsState } from '../detailsState.js';
 import type { DetailsSelection, DetailsWorkflowHost } from '../detailsWorkflowController.js';
-import { DetailsWorkflowController } from '../detailsWorkflowController.js';
+import { DetailsWorkflowController, withoutFindingOpening } from '../detailsWorkflowController.js';
+import { emptyReviewSession, withFindingNote, withFindingState } from '../reviewSession.js';
 
 /** Drain the two `.then` hops of the generate-message dispatch (RPC→map→onRunSettled). */
 const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0));
@@ -911,6 +913,58 @@ suite('DetailsWorkflowController — running-operations registry', () => {
 			[first],
 			'the shown review loses it too',
 		);
+	});
+
+	test("deleting a thread's opening keeps the thread: the first reply opens it, until none is left", () => {
+		const result = {
+			overview: '',
+			mode: 'single-pass',
+			focusAreas: [
+				{
+					id: 'area',
+					label: 'Area',
+					rationale: '',
+					severity: 'warning',
+					files: [],
+					findings: [
+						{
+							id: 'f1',
+							severity: 'warning',
+							title: 'one',
+							description: 'AI words',
+							filePath: 'a.ts',
+							lineRange: { start: 3, end: 4 },
+						},
+					],
+				},
+			],
+		} as unknown as AIReviewResult;
+		let session = withFindingNote(emptyReviewSession, 'f1', { author: 'user', text: 'why?', at: 1 });
+		session = withFindingNote(session, 'f1', { author: 'agent', text: 'because', at: 2 });
+		session = withFindingState(session, 'f1', 'dismissed');
+
+		let next = withoutFindingOpening(result, session, 'f1');
+		assert.deepStrictEqual(next.result?.focusAreas, [], 'the AI finding leaves the result');
+		assert.deepStrictEqual(
+			next.session.comments?.map(c => [c.id, c.source, c.author, c.description, c.filePath, c.lineRange]),
+			[['f1', 'user', undefined, 'why?', 'a.ts', { start: 3, end: 4 }]],
+		);
+		assert.deepStrictEqual(
+			next.session.notes.get('f1')?.map(n => n.text),
+			['because'],
+		);
+		assert.strictEqual(next.session.findingStates.get('f1'), 'dismissed', 'the thread keeps its state');
+
+		next = withoutFindingOpening(next.result, next.session, 'f1');
+		assert.deepStrictEqual(
+			next.session.comments?.map(c => [c.author, c.description]),
+			[['agent', 'because']],
+		);
+		assert.strictEqual(next.session.notes.has('f1'), false);
+
+		next = withoutFindingOpening(next.result, next.session, 'f1');
+		assert.strictEqual(next.session.comments, undefined, 'with no reply left, the thread goes');
+		assert.strictEqual(next.session.findingStates.has('f1'), false);
 	});
 
 	test('a second deep review starts its counters over, and a report lands on the review it was started from', () => {

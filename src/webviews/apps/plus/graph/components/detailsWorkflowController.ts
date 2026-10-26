@@ -43,7 +43,7 @@ import type {
 } from './detailsState.js';
 import { abortRunningOperation, compareSides } from './detailsState.js';
 import type { ScopeItem } from './gl-commits-scope-pane.js';
-import type { ReviewFileIdentity, ReviewFindingState, ReviewSession } from './reviewSession.js';
+import type { ReviewComment, ReviewFileIdentity, ReviewFindingState, ReviewSession } from './reviewSession.js';
 import {
 	createReviewComment,
 	emptyReviewSession,
@@ -125,6 +125,50 @@ export function withoutReviewFinding(
 	return {
 		result: result != null ? withoutResultFinding(result, findingId) : undefined,
 		session: withoutFindingRecord(session, findingId),
+	};
+}
+
+/** A thread without its opening words: the first reply opens it now. The thread stays where it was, with
+ *  its state and the rest of its replies, as a comment of the review's own under the same id — an AI or
+ *  agent finding leaves the result for it. With no reply to take over, the finding goes. */
+export function withoutFindingOpening(
+	result: AIReviewResult | undefined,
+	session: ReviewSession,
+	findingId: string,
+): { result: AIReviewResult | undefined; session: ReviewSession } {
+	const notes = session.notes.get(findingId);
+	const own = session.comments?.find(c => c.id === findingId);
+	const finding = own ?? result?.focusAreas.flatMap(a => a.findings ?? []).find(f => f.id === findingId);
+	if (!notes?.length || finding == null) return withoutReviewFinding(result, session, findingId);
+
+	const [next, ...rest] = notes;
+	const opened: ReviewComment = {
+		id: findingId,
+		severity: 'suggestion',
+		title: '',
+		description: next.text,
+		filePath: finding.filePath,
+		lineRange: finding.lineRange,
+		...(finding.locations != null ? { locations: finding.locations } : {}),
+		source: 'user',
+		...(next.author === 'agent' ? { author: 'agent' as const } : {}),
+	};
+	const nextNotes = new Map(session.notes);
+	if (rest.length > 0) {
+		nextNotes.set(findingId, rest);
+	} else {
+		nextNotes.delete(findingId);
+	}
+	return {
+		result: own == null && result != null ? withoutResultFinding(result, findingId) : result,
+		session: {
+			...session,
+			comments:
+				own != null
+					? session.comments!.map(c => (c.id === findingId ? opened : c))
+					: [...(session.comments ?? []), opened],
+			notes: nextNotes,
+		},
 	};
 }
 
@@ -1409,6 +1453,9 @@ export class DetailsWorkflowController implements ReactiveController {
 						if (noteId != null && text) {
 							session = withFindingNoteText(session, findingId, noteId, text);
 						}
+						break;
+					case 'deleteOpening':
+						({ result, session } = withoutFindingOpening(result, session, findingId));
 						break;
 					case 'deleteNote':
 						if (noteId != null) {
