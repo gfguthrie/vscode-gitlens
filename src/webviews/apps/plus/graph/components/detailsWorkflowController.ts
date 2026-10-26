@@ -51,7 +51,10 @@ import {
 	withFilesViewed,
 	withFindingNote,
 	withFindingState,
+	withoutFindingNote,
+	withoutFindingRecord,
 	withoutFindings,
+	withoutResultFinding,
 	withoutReviewComment,
 	withReadingOrder,
 	withReviewComment,
@@ -104,6 +107,23 @@ export function withAgentFindings(
 		overview: result?.overview ?? l10n.t('A review in the repository by your agent.'),
 		mode: result?.mode ?? 'single-pass',
 		focusAreas: existing != null ? areas.map(a => (a.id === agentFocusAreaId ? area : a)) : [...areas, area],
+	};
+}
+
+/** A finding gone from the review: the reader's own comment from the session, anyone else's from the
+ *  result — with its state and notes either way. */
+export function withoutReviewFinding(
+	result: AIReviewResult | undefined,
+	session: ReviewSession,
+	findingId: string,
+): { result: AIReviewResult | undefined; session: ReviewSession } {
+	if (session.comments?.some(c => c.id === findingId)) {
+		return { result: result, session: withoutReviewComment(session, findingId) };
+	}
+
+	return {
+		result: result != null ? withoutResultFinding(result, findingId) : undefined,
+		session: withoutFindingRecord(session, findingId),
 	};
 }
 
@@ -1129,9 +1149,30 @@ export class DetailsWorkflowController implements ReactiveController {
 			this.updateReviewSession(session =>
 				withFindingNote(session, findingId, { author: 'user', text: text, at: Date.now() }),
 			),
-		/** Removes the reader's own comment, from its card — the thread's delete lands in {@link applyThreadActions}. */
-		deleteComment: (findingId: string): void =>
-			this.updateReviewSession(session => withoutReviewComment(session, findingId)),
+		/** Removes a finding — the AI's, the agent's or the reader's own comment — from its card, with its
+		 *  threads; the thread's delete lands in {@link applyThreadActions}. */
+		deleteFinding: (findingId: string): void => {
+			const anchor = this.currentAnchor();
+			const entry = this.host.crossPaneState.runningOperations.get().get(anchorKey(anchor))?.review;
+			if (entry == null) return;
+
+			const current = entry.result ?? this.actions.resources.review.value.get();
+			const before = current != null && 'result' in current ? current.result : undefined;
+			const { result, session } = withoutReviewFinding(before, entry.session ?? emptyReviewSession, findingId);
+			if (result === before && session === entry.session) return;
+
+			this.registerRunningOperation({
+				...entry,
+				...(result !== before ? { result: { result: result! } } : {}),
+				session: session,
+			});
+			if (result !== before) {
+				this.actions.resources.review.mutate({ result: result! });
+			}
+		},
+		/** Removes one note from a finding's thread, from its card. */
+		deleteFindingNote: (findingId: string, noteId: string): void =>
+			this.updateReviewSession(session => withoutFindingNote(session, findingId, noteId)),
 		/** The orient depth: a reading plan for the checklist, tracked on the entry like a focus-area run. */
 		runOrient: (
 			repoPath: string | undefined,
@@ -1341,10 +1382,13 @@ export class DetailsWorkflowController implements ReactiveController {
 
 			const entry = existing ?? { kind: 'review' as const, anchor: anchor, execState: 'backed' as const };
 			let session = entry.session ?? emptyReviewSession;
+			const current = entry.result ?? this.actions.resources.review.value.get();
+			const before = current != null && 'result' in current ? current.result : undefined;
+			let result = before;
 			// Hand-offs run after the session is registered, so what they send carries the reply
 			const handOffs: (() => void)[] = [];
 			let commented = false;
-			for (const { findingId, action, text, place } of fresh) {
+			for (const { findingId, action, text, place, noteId } of fresh) {
 				switch (action) {
 					case 'comment':
 						if (text && place != null) {
@@ -1357,11 +1401,13 @@ export class DetailsWorkflowController implements ReactiveController {
 							session = withReviewCommentText(session, findingId, text);
 						}
 						break;
-					case 'deleteComment':
-						session = withoutReviewComment(session, findingId);
+					case 'delete':
+						({ result, session } = withoutReviewFinding(result, session, findingId));
 						break;
-					case 'resolve':
-						session = withFindingState(session, findingId, 'resolved');
+					case 'deleteNote':
+						if (noteId != null) {
+							session = withoutFindingNote(session, findingId, noteId);
+						}
 						break;
 					case 'dismiss':
 						session = withFindingState(session, findingId, 'dismissed');
@@ -1395,9 +1441,13 @@ export class DetailsWorkflowController implements ReactiveController {
 			this.registerRunningOperation({
 				...entry,
 				...(commented && entry.execState === 'backed' ? { execState: 'complete' as const } : {}),
+				...(result !== before ? { result: { result: result! } } : {}),
 				session: session,
 				threadActionsApplied: fresh.at(-1)!.seq,
 			});
+			if (result !== before) {
+				this.actions.resources.review.mutate({ result: result! });
+			}
 			for (const handOff of handOffs) {
 				handOff();
 			}

@@ -370,12 +370,14 @@ export interface ReviewFilesArgs {
 	paths: string[];
 }
 
-export type ReviewThreadState = 'open' | 'resolved' | 'dismissed';
+export type ReviewThreadState = 'open' | 'dismissed';
 
 /** A remark on a finding: the reader's reply on its thread or in its card (why it was closed, a question,
  *  a correction), or an agent's addition to a finding that was already there. Kept with the session and
  *  shown wherever the finding is — the thread, the card, the exports, the next review's context. */
 export interface ReviewFindingNote {
+	/** Given when the note joins the session, so it can be removed by itself */
+	id?: string;
 	author: 'user' | 'agent';
 	text: string;
 	/** When it was written, epoch ms */
@@ -407,7 +409,6 @@ export interface ReviewThreadsArgs {
 }
 
 export type ReviewThreadAction =
-	| 'resolve'
 	| 'dismiss'
 	| 'reopen'
 	| 'sendToAgent'
@@ -416,7 +417,8 @@ export type ReviewThreadAction =
 	| 'address'
 	| 'comment'
 	| 'editComment'
-	| 'deleteComment';
+	| 'delete'
+	| 'deleteNote';
 
 /** Where the reader opened a thread of their own: a review file and the lines on the diff's right side. */
 export interface ReviewCommentPlace {
@@ -427,7 +429,8 @@ export interface ReviewCommentPlace {
 
 /** Actions taken on threads from the editor, append-only with a sequence so a panel that was hidden
  *  for a while applies exactly the ones it hasn't. A `reply` carries its text; a `comment` — a thread the
- *  reader opened on a line — carries its text and place, and its `findingId` is the new comment's. */
+ *  reader opened on a line — carries its text and place, and its `findingId` is the new comment's. `delete`
+ *  removes the finding with all its threads; `deleteNote` one note in them, by `noteId`. */
 export interface ReviewThreadActionsState {
 	actions: {
 		seq: number;
@@ -435,6 +438,7 @@ export interface ReviewThreadActionsState {
 		action: ReviewThreadAction;
 		text?: string;
 		place?: ReviewCommentPlace;
+		noteId?: string;
 	}[];
 }
 

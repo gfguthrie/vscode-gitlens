@@ -9,7 +9,8 @@ import type {
 	ScopeFile,
 } from '../../../../plus/graph/graphService.js';
 
-export type ReviewFindingState = 'resolved' | 'dismissed';
+/** A finding set aside — fixed, wrong, or not worth doing; the reader needn't say which. */
+export type ReviewFindingState = 'dismissed';
 
 /** What a review remembers about its changeset beyond the AI result: which files the reader has been
  *  through, which were set aside, and what became of each finding. Plain data on the anchor's registry
@@ -20,7 +21,7 @@ export interface ReviewSession {
 	readonly viewed: ReadonlyMap<string, { contentId?: string }>;
 	/** Files set aside — out of the checklist and out of the AI's diff. */
 	readonly excluded: ReadonlySet<string>;
-	/** Findings no longer open; absent = open. */
+	/** Findings set aside; absent = open. */
 	readonly findingStates: ReadonlyMap<string, ReviewFindingState>;
 	/** What was said about a finding after the fact — the reader's replies and the agent's additions, in
 	 *  the order they came. */
@@ -163,7 +164,6 @@ export function isReviewComplete(progress: ReviewProgress): boolean {
 
 export interface ReviewFindingCounts {
 	open: number;
-	resolved: number;
 	dismissed: number;
 }
 
@@ -171,7 +171,7 @@ export function countReviewFindingStates(
 	result: AIReviewResult | undefined,
 	session: ReviewSession | undefined,
 ): ReviewFindingCounts {
-	const counts: ReviewFindingCounts = { open: 0, resolved: 0, dismissed: 0 };
+	const counts: ReviewFindingCounts = { open: 0, dismissed: 0 };
 	if (result == null) return counts;
 
 	for (const area of result.focusAreas) {
@@ -254,7 +254,7 @@ export function getReviewFileFindings(
 	return byPath;
 }
 
-/** Ids of findings that are resolved or dismissed — what markdown export and the findings list leave out. */
+/** Ids of findings that are dismissed — what markdown export and the findings list leave out. */
 export function getClosedFindingIds(session: ReviewSession | undefined): ReadonlySet<string> {
 	if (!session?.findingStates.size) return emptyReviewSession.excluded;
 
@@ -313,14 +313,63 @@ export function withFindingState(
 	return { ...session, findingStates: next };
 }
 
-/** Appends a note to a finding; an empty one is ignored. */
+let noteSeq = 0;
+
+/** Appends a note to a finding, giving it an id to be removed by; an empty one is ignored. */
 export function withFindingNote(session: ReviewSession, findingId: string, note: ReviewFindingNote): ReviewSession {
 	const text = note.text.trim();
 	if (!text) return session;
 
+	const id = note.id ?? `${note.at.toString(36)}-${(++noteSeq).toString(36)}`;
 	const next = new Map(session.notes);
-	next.set(findingId, [...(session.notes.get(findingId) ?? []), { ...note, text: text }]);
+	next.set(findingId, [...(session.notes.get(findingId) ?? []), { ...note, id: id, text: text }]);
 	return { ...session, notes: next };
+}
+
+/** Removes one note from a finding's thread. */
+export function withoutFindingNote(session: ReviewSession, findingId: string, noteId: string): ReviewSession {
+	const notes = session.notes.get(findingId);
+	if (!notes?.some(n => n.id === noteId)) return session;
+
+	const remaining = notes.filter(n => n.id !== noteId);
+	const next = new Map(session.notes);
+	if (remaining.length > 0) {
+		next.set(findingId, remaining);
+	} else {
+		next.delete(findingId);
+	}
+	return { ...session, notes: next };
+}
+
+/** The result without one finding — a focus area it leaves empty goes with it. The same result when the
+ *  finding isn't in it. */
+export function withoutResultFinding(result: AIReviewResult, findingId: string): AIReviewResult {
+	if (!result.focusAreas.some(a => a.findings?.some(f => f.id === findingId))) return result;
+
+	const focusAreas: AIReviewResult['focusAreas'][number][] = [];
+	for (const area of result.focusAreas) {
+		if (!area.findings?.some(f => f.id === findingId)) {
+			focusAreas.push(area);
+			continue;
+		}
+
+		const findings = area.findings.filter(f => f.id !== findingId);
+		if (findings.length === 0) continue;
+
+		focusAreas.push({ ...area, findings: findings });
+	}
+	return { ...result, focusAreas: focusAreas };
+}
+
+/** A finding's state and notes go when the finding does. */
+export function withoutFindingRecord(session: ReviewSession, findingId: string): ReviewSession {
+	if (!session.findingStates.has(findingId) && !session.notes.has(findingId)) return session;
+
+	const findingStates = new Map(session.findingStates);
+	findingStates.delete(findingId);
+	const notes = new Map(session.notes);
+	notes.delete(findingId);
+	return { ...session, findingStates: findingStates, notes: notes };
 }
 
 /** Drops the AI findings' states and notes — for a result that is being discarded; viewed marks,
@@ -376,51 +425,84 @@ export function withoutReviewComment(session: ReviewSession, id: string): Review
 	if (!session.comments?.some(c => c.id === id)) return session;
 
 	const comments = session.comments.filter(c => c.id !== id);
-	const findingStates = new Map(session.findingStates);
-	findingStates.delete(id);
-	const notes = new Map(session.notes);
-	notes.delete(id);
-	return {
-		...session,
-		comments: comments.length > 0 ? comments : undefined,
-		findingStates: findingStates,
-		notes: notes,
-	};
+	return withoutFindingRecord({ ...session, comments: comments.length > 0 ? comments : undefined }, id);
+}
+
+/** A reply of the reader's on a thread someone else started — an AI or agent finding. */
+export interface ReviewReply {
+	readonly finding: AIReviewFinding;
+	readonly note: ReviewFindingNote;
+}
+
+/** The reader's replies on the findings they didn't write, in the findings' order and then the replies'. */
+export function getReviewReplies(
+	result: AIReviewResult | undefined,
+	session: ReviewSession | undefined,
+): ReviewReply[] {
+	const replies: ReviewReply[] = [];
+	if (result == null || !session?.notes.size) return replies;
+
+	for (const area of result.focusAreas) {
+		if (area.id === userFocusAreaId) continue;
+
+		for (const finding of area.findings ?? []) {
+			for (const note of session.notes.get(finding.id) ?? []) {
+				if (note.author !== 'user') continue;
+
+				replies.push({ finding: finding, note: note });
+			}
+		}
+	}
+	return replies;
 }
 
 let lastWithComments:
-	| { result: AIReviewResult | undefined; comments: readonly AIReviewFinding[]; merged: AIReviewResult }
+	| {
+			result: AIReviewResult | undefined;
+			comments: readonly AIReviewFinding[] | undefined;
+			notes: ReviewSession['notes'] | undefined;
+			merged: AIReviewResult | undefined;
+	  }
 	| undefined;
 
-/** The review as the reader sees it: the AI's result with the reader's comments as a focus area of their own,
- *  first. Without comments it is the result itself; with comments and no result, a result of just them.
- *  The same inputs give the same object, so what keys on identity (the panel, the thread sync) holds still. */
+/** The review as the reader sees it: the AI's result with a focus area of the reader's own, first — their
+ *  comments as its findings, and (shown with them, see {@link getReviewReplies}) their replies on the
+ *  other findings. Without either it is the result itself; with comments and no result, a result of just
+ *  them. The same inputs give the same object, so what keys on identity (the panel, the thread sync) holds
+ *  still. */
 export function withReviewComments(
 	result: AIReviewResult | undefined,
 	session: ReviewSession | undefined,
 ): AIReviewResult | undefined {
 	const comments = session?.comments;
-	if (!comments?.length) return result;
-
+	const notes = session?.notes;
 	const last = lastWithComments;
-	if (last != null && last.result === result && last.comments === comments) return last.merged;
+	if (last != null && last.result === result && last.comments === comments && last.notes === notes) {
+		return last.merged;
+	}
 
-	const merged: AIReviewResult = {
-		overview: result?.overview ?? '',
-		mode: result?.mode ?? 'single-pass',
-		focusAreas: [
-			{
-				id: userFocusAreaId,
-				label: l10n.t('Your comments'),
-				rationale: l10n.t('What you noted on the lines of the diff — for the fix and the later reviews.'),
-				severity: 'suggestion',
-				files: [...new Set(comments.map(c => c.filePath!))],
-				findings: comments,
-			},
-			...(result?.focusAreas.filter(a => a.id !== userFocusAreaId) ?? []),
-		],
-	};
-	lastWithComments = { result: result, comments: comments, merged: merged };
+	const hasReplies = getReviewReplies(result, session).length > 0;
+	let merged = result;
+	if (comments?.length || hasReplies) {
+		merged = {
+			overview: result?.overview ?? '',
+			mode: result?.mode ?? 'single-pass',
+			focusAreas: [
+				{
+					id: userFocusAreaId,
+					label: l10n.t('Your comments'),
+					rationale: l10n.t(
+						'What you noted on the lines of the diff and in the findings’ threads — for the fix and the later reviews.',
+					),
+					severity: 'suggestion',
+					files: [...new Set((comments ?? []).map(c => c.filePath!))],
+					findings: comments ?? [],
+				},
+				...(result?.focusAreas.filter(a => a.id !== userFocusAreaId) ?? []),
+			],
+		};
+	}
+	lastWithComments = { result: result, comments: comments, notes: notes, merged: merged };
 	return merged;
 }
 

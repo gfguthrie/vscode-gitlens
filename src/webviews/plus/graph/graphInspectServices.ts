@@ -1381,7 +1381,13 @@ export class GraphInspectServices {
 	}
 
 	/** {@link ReviewThreadsOwner} — a thread's title-bar command lands here and is relayed to the webview. */
-	reviewThreadAction(findingId: string, action: ReviewThreadAction, text?: string, place?: ReviewCommentPlace): void {
+	reviewThreadAction(
+		findingId: string,
+		action: ReviewThreadAction,
+		text?: string,
+		place?: ReviewCommentPlace,
+		noteId?: string,
+	): void {
 		const actions = this._reviewThreadActions.actions;
 		actions.push({
 			seq: (actions.at(-1)?.seq ?? 0) + 1,
@@ -1389,6 +1395,7 @@ export class GraphInspectServices {
 			action: action,
 			...(text != null ? { text: text } : {}),
 			...(place != null ? { place: place } : {}),
+			...(noteId != null ? { noteId: noteId } : {}),
 		});
 		this._reviewThreadActionsEvent.fire({ actions: [...actions] });
 	}

@@ -636,9 +636,9 @@ suite('DetailsWorkflowController — running-operations registry', () => {
 		assert.strictEqual(entry?.execState, 'complete');
 		assert.strictEqual(entry?.session?.viewed.get('src/a.ts')?.contentId, 'a1', 'progress outlives the run');
 
-		controller.review.setFindingState('f1', 'resolved');
+		controller.review.setFindingState('f1', 'dismissed');
 		entry = host.crossPaneState.runningOperations.get().get(wipKey('/A'))?.review;
-		assert.strictEqual(entry?.session?.findingStates.get('f1'), 'resolved');
+		assert.strictEqual(entry?.session?.findingStates.get('f1'), 'dismissed');
 
 		// Discarding the findings keeps the reader's progress and the mode.
 		controller.review.discard();
@@ -831,9 +831,79 @@ suite('DetailsWorkflowController — running-operations registry', () => {
 		assert.strictEqual(entry?.session?.comments?.length, 1, "discarding the AI's findings keeps the comments");
 		assert.strictEqual(entry?.execState, 'complete', 'and the panel stays on them');
 
-		controller.review.deleteComment('user-1');
+		controller.review.deleteFinding('user-1');
 		entry = host.crossPaneState.runningOperations.get().get(wipKey('/A'))?.review;
 		assert.strictEqual(entry?.session?.comments, undefined);
+	});
+
+	test("deleting from a thread: a note by its id, or the finding — the AI's from the result, with its state and notes", () => {
+		const { host, state, controller, actions } = setup({ repoPath: '/A', graphRepoPath: '/A' });
+		state.activeMode.set('review');
+		state.activeModeContext.set('wip');
+		state.activeModeRepoPath.set('/A');
+		state.activeModeSha.set(uncommitted);
+		const reviewed = {
+			result: {
+				overview: '',
+				mode: 'single-pass',
+				focusAreas: [
+					{
+						id: 'area',
+						label: 'Area',
+						rationale: '',
+						severity: 'warning',
+						files: [],
+						findings: [
+							{ id: 'f1', severity: 'warning', title: 'one', description: '' },
+							{ id: 'f2', severity: 'warning', title: 'two', description: '' },
+						],
+					},
+				],
+			},
+		} as unknown as ReviewResult;
+		host.crossPaneState.runningOperations.set(
+			new Map([[wipKey('/A'), makeReviewBucket('/A', reviewed, 'complete')]]),
+		);
+		const findingIds = () => {
+			const value = host.crossPaneState.runningOperations.get().get(wipKey('/A'))?.review?.result;
+			return value != null && 'result' in value
+				? value.result.focusAreas.flatMap(a => a.findings?.map(f => f.id) ?? [])
+				: [];
+		};
+		const [first, second] = findingIds();
+
+		controller.review.applyThreadActions({
+			actions: [
+				{ seq: 1, findingId: first, action: 'reply', text: 'one' },
+				{ seq: 2, findingId: first, action: 'reply', text: 'two' },
+				{ seq: 3, findingId: second, action: 'dismiss' },
+			],
+		});
+		let entry = host.crossPaneState.runningOperations.get().get(wipKey('/A'))?.review;
+		const noteId = entry?.session?.notes.get(first)?.[0].id;
+
+		controller.review.applyThreadActions({
+			actions: [
+				{ seq: 1, findingId: first, action: 'reply', text: 'one' },
+				{ seq: 2, findingId: first, action: 'reply', text: 'two' },
+				{ seq: 3, findingId: second, action: 'dismiss' },
+				{ seq: 4, findingId: first, action: 'deleteNote', noteId: noteId },
+				{ seq: 5, findingId: second, action: 'delete' },
+			],
+		});
+		entry = host.crossPaneState.runningOperations.get().get(wipKey('/A'))?.review;
+		assert.deepStrictEqual(
+			entry?.session?.notes.get(first)?.map(n => n.text),
+			['two'],
+		);
+		assert.deepStrictEqual(findingIds(), [first]);
+		assert.strictEqual(entry?.session?.findingStates.has(second), false);
+		const shown = actions.resources.review.value.get();
+		assert.deepStrictEqual(
+			shown != null && 'result' in shown ? shown.result.focusAreas.flatMap(a => a.findings?.map(f => f.id)) : [],
+			[first],
+			'the shown review loses it too',
+		);
 	});
 
 	test('a second deep review starts its counters over, and a report lands on the review it was started from', () => {

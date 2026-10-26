@@ -199,7 +199,7 @@ export function parseDeepReviewReport(
  *  to one of those findings instead of reporting it again. `priorFindings` is the panel's rendering of
  *  the findings (see `formatReviewForAgentContext`), ids included. */
 export function getDeepReviewPriorFindingsSection(priorFindings: string, endpoint: string, token: string): string {
-	return `A review of the diff alone has already run. Its findings are below, each with its id, its state — open, or resolved or dismissed by the reader — and what the reader said about it. Do not report any of them again. Use them as leads: verify each in the repository — read the callers, run the tests — and report what the diff alone could not show. A dismissed finding was judged wrong or not worth doing; take the reader's word on it unless you have evidence to the contrary.
+	return `A review of the diff alone has already run. Its findings are below, each with its id, its state — open, or dismissed by the reader — and what the reader said about it. Do not report any of them again. Use them as leads: verify each in the repository — read the callers, run the tests — and report what the diff alone could not show. A dismissed finding is closed: already fixed, judged wrong, or not worth doing; take the reader's word on it unless you have evidence to the contrary.
 
 To add to one of these findings — evidence for or against it, a scope that is wider or narrower than stated, a consequence elsewhere — POST a comment on it instead of a new finding:
 

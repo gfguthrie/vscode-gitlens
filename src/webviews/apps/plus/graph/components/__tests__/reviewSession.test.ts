@@ -10,6 +10,7 @@ import {
 	getReviewProgress,
 	getReviewReadingOrder,
 	getReviewReadingShortcut,
+	getReviewReplies,
 	getReviewThreadItems,
 	isReviewComplete,
 	userFocusAreaId,
@@ -17,7 +18,9 @@ import {
 	withFilesViewed,
 	withFindingNote,
 	withFindingState,
+	withoutFindingNote,
 	withoutFindings,
+	withoutResultFinding,
 	withoutReviewComment,
 	withReadingOrder,
 	withReviewComment,
@@ -97,14 +100,14 @@ suite('reviewSession — finding states', () => {
 		],
 	} as unknown as AIReviewResult;
 
-	test('open is the default; resolved and dismissed are counted apart and both read as closed', () => {
-		let session = withFindingState(emptyReviewSession, 'f1', 'resolved');
+	test('open is the default; a dismissed finding reads as closed until reopened', () => {
+		let session = withFindingState(emptyReviewSession, 'f1', 'dismissed');
 		session = withFindingState(session, 'f2', 'dismissed');
-		assert.deepStrictEqual(countReviewFindingStates(result, session), { open: 1, resolved: 1, dismissed: 1 });
+		assert.deepStrictEqual(countReviewFindingStates(result, session), { open: 1, dismissed: 2 });
 		assert.deepStrictEqual([...getClosedFindingIds(session)].sort(), ['f1', 'f2']);
 
 		session = withFindingState(session, 'f1', undefined);
-		assert.deepStrictEqual(countReviewFindingStates(result, session), { open: 2, resolved: 0, dismissed: 1 });
+		assert.deepStrictEqual(countReviewFindingStates(result, session), { open: 2, dismissed: 1 });
 	});
 });
 
@@ -170,7 +173,7 @@ suite('reviewSession — findings by file', () => {
 			],
 		);
 
-		let session = withFindingState(emptyReviewSession, 'f2', 'resolved');
+		let session = withFindingState(emptyReviewSession, 'f2', 'dismissed');
 		byPath = getReviewFileFindings(result, session);
 		assert.deepStrictEqual(byPath.get('src/a.ts'), {
 			open: 2,
@@ -185,7 +188,7 @@ suite('reviewSession — findings by file', () => {
 	});
 
 	test('the target is the first open finding with a line; with none open, the first finding with a line', () => {
-		let session = withFindingState(emptyReviewSession, 'f2', 'resolved');
+		let session = withFindingState(emptyReviewSession, 'f2', 'dismissed');
 		session = withFindingState(session, 'f5', 'dismissed');
 		// f1 is open but has no line — the closed f2 still names where to land
 		assert.deepStrictEqual(getReviewFileFindings(result, session).get('src/a.ts'), {
@@ -247,10 +250,23 @@ suite('reviewSession — notes', () => {
 		session = withFindingNote(session, 'f1', { author: 'user', text: ' not a bug here ', at: 1 });
 		session = withFindingNote(session, 'f1', { author: 'agent', text: 'it is — see the caller', at: 2 });
 		session = withFindingState(session, 'f1', 'dismissed');
-		assert.deepStrictEqual(session.notes.get('f1'), [
-			{ author: 'user', text: 'not a bug here', at: 1 },
-			{ author: 'agent', text: 'it is — see the caller', at: 2 },
-		]);
+		assert.deepStrictEqual(
+			session.notes.get('f1')?.map(({ id: _, ...note }) => note),
+			[
+				{ author: 'user', text: 'not a bug here', at: 1 },
+				{ author: 'agent', text: 'it is — see the caller', at: 2 },
+			],
+		);
+		const ids = session.notes.get('f1')!.map(n => n.id ?? '');
+		assert.ok(ids.every(id => id !== '') && ids[0] !== ids[1], 'each note gets an id of its own');
+
+		const without = withoutFindingNote(session, 'f1', ids[0]);
+		assert.deepStrictEqual(
+			without.notes.get('f1')?.map(n => n.text),
+			['it is — see the caller'],
+		);
+		assert.strictEqual(withoutFindingNote(without, 'f1', 'nope'), without);
+		assert.strictEqual(withoutFindingNote(without, 'f1', ids[1]).notes.has('f1'), false);
 
 		const cleared = withoutFindings(session);
 		assert.strictEqual(cleared.notes.size, 0);
@@ -307,7 +323,7 @@ suite('reviewSession — thread projection', () => {
 			],
 		} as unknown as AIReviewResult;
 		let session = withFindingState(emptyReviewSession, 'f3', 'dismissed');
-		session = withFindingNote(session, 'f3', { author: 'user', text: 'intended', at: 7 });
+		session = withFindingNote(session, 'f3', { id: 'n1', author: 'user', text: 'intended', at: 7 });
 
 		assert.deepStrictEqual(getReviewThreadItems(result, session), [
 			{
@@ -331,7 +347,7 @@ suite('reviewSession — thread projection', () => {
 				title: 'three',
 				description: 'd3',
 				state: 'dismissed',
-				notes: [{ author: 'user', text: 'intended', at: 7 }],
+				notes: [{ id: 'n1', author: 'user', text: 'intended', at: 7 }],
 			},
 			// One finding, a thread at each of its places that has lines — all the one finding's
 			{
@@ -441,7 +457,7 @@ suite("reviewSession — the reader's own comments", () => {
 		assert.strictEqual(session.comments?.[0].description, 'why here, not in the caller?');
 		assert.strictEqual(withReviewCommentText(session, 'user-1', '  '), session);
 
-		session = withFindingState(session, 'user-1', 'resolved');
+		session = withFindingState(session, 'user-1', 'dismissed');
 		session = withFindingNote(session, 'user-1', { author: 'agent', text: 'moved it', at: 1 });
 		const removed = withoutReviewComment(session, 'user-1');
 		assert.strictEqual(removed.comments, undefined);
@@ -451,13 +467,13 @@ suite("reviewSession — the reader's own comments", () => {
 
 	test("discarding the AI's findings keeps the reader's comments with their states and notes", () => {
 		let session = withReviewComment(emptyReviewSession, createReviewComment('user-1', place, 'why here?'));
-		session = withFindingState(session, 'user-1', 'resolved');
+		session = withFindingState(session, 'user-1', 'dismissed');
 		session = withFindingState(session, 'f1', 'dismissed');
 		session = withFindingNote(session, 'user-1', { author: 'user', text: 'done', at: 1 });
 		session = withFindingNote(session, 'f1', { author: 'user', text: 'intended', at: 2 });
 
 		const cleared = withoutFindings(session);
-		assert.deepStrictEqual([...cleared.findingStates], [['user-1', 'resolved']]);
+		assert.deepStrictEqual([...cleared.findingStates], [['user-1', 'dismissed']]);
 		assert.deepStrictEqual([...cleared.notes.keys()], ['user-1']);
 		assert.strictEqual(cleared.comments, session.comments);
 	});
@@ -488,5 +504,70 @@ suite("reviewSession — the reader's own comments", () => {
 			getReviewThreadItems(alone, session).map(i => [i.id, i.source, i.line, i.lineEnd]),
 			[['user-1', 'user', 3, 4]],
 		);
+	});
+
+	test('replies on the AI findings join the area too — the area shows up for them alone', () => {
+		const result = {
+			overview: '',
+			mode: 'single-pass',
+			focusAreas: [
+				{
+					id: 'area',
+					label: 'Area',
+					rationale: '',
+					severity: 'warning',
+					files: [],
+					findings: [{ id: 'f1', severity: 'warning', title: 'one', description: '', filePath: 'src/a.ts' }],
+				},
+			],
+		} as unknown as AIReviewResult;
+		let session = withFindingNote(emptyReviewSession, 'f1', { author: 'agent', text: 'confirmed', at: 1 });
+		assert.strictEqual(withReviewComments(result, session), result, "an agent's note is not the reader's");
+
+		session = withFindingNote(session, 'f1', { author: 'user', text: 'fixed in the caller', at: 2 });
+		const merged = withReviewComments(result, session)!;
+		assert.deepStrictEqual(
+			merged.focusAreas.map(a => [a.id, a.findings?.length]),
+			[
+				[userFocusAreaId, 0],
+				['area', 1],
+			],
+		);
+		assert.deepStrictEqual(
+			getReviewReplies(merged, session).map(r => [r.finding.id, r.note.text]),
+			[['f1', 'fixed in the caller']],
+		);
+	});
+});
+
+suite('reviewSession — removing a finding', () => {
+	test('a finding leaves the result; an area it leaves empty goes with it', () => {
+		const result = {
+			overview: '',
+			mode: 'single-pass',
+			focusAreas: [
+				{
+					id: 'a',
+					label: 'A',
+					rationale: '',
+					severity: 'warning',
+					files: [],
+					findings: [{ id: 'f1' }, { id: 'f2' }],
+				},
+				{ id: 'b', label: 'B', rationale: '', severity: 'warning', files: [], findings: [{ id: 'f3' }] },
+			],
+		} as unknown as AIReviewResult;
+		assert.deepStrictEqual(
+			withoutResultFinding(result, 'f1').focusAreas.map(a => [a.id, a.findings?.map(f => f.id)]),
+			[
+				['a', ['f2']],
+				['b', ['f3']],
+			],
+		);
+		assert.deepStrictEqual(
+			withoutResultFinding(result, 'f3').focusAreas.map(a => a.id),
+			['a'],
+		);
+		assert.strictEqual(withoutResultFinding(result, 'nope'), result);
 	});
 });

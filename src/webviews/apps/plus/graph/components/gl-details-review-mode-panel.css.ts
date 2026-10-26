@@ -876,9 +876,24 @@ export const reviewModePanelStyles = css`
 	}
 
 	.review-finding__note {
+		position: relative;
+		padding-right: 2.4rem;
 		font-size: var(--gl-font-sm);
 		line-height: 1.4;
 		overflow-wrap: anywhere;
+	}
+
+	/* A note's delete shows where the pointer or focus is, so a long thread doesn't read as a column of bins */
+	.review-finding__note-delete {
+		position: absolute;
+		top: -0.2rem;
+		right: 0;
+		opacity: 0;
+	}
+
+	.review-finding__note:hover .review-finding__note-delete,
+	.review-finding__note:focus-within .review-finding__note-delete {
+		opacity: 1;
 	}
 
 	.review-finding__note-author {

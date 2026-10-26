@@ -23,7 +23,13 @@ import type {
 
 /** The graph instance whose findings the threads show; thread actions go back to it. */
 export interface ReviewThreadsOwner {
-	reviewThreadAction(findingId: string, action: ReviewThreadAction, text?: string, place?: ReviewCommentPlace): void;
+	reviewThreadAction(
+		findingId: string,
+		action: ReviewThreadAction,
+		text?: string,
+		place?: ReviewCommentPlace,
+		noteId?: string,
+	): void;
 	/** The review file `uri` is, when it is the right side of one of the review's diffs — where the reader
 	 *  can open a thread of their own. */
 	reviewCommentPath(uri: Uri): string | undefined;
@@ -34,8 +40,10 @@ let controller: ReturnType<typeof comments.createCommentController> | undefined;
 let owner: ReviewThreadsOwner | undefined;
 const threads = new Map<string, CommentThread>();
 const threadFindings = new WeakMap<CommentThread, string>();
-/** The reader's comment as its thread shows it — the edit and delete commands get the comment, not the thread. */
-const userComments = new WeakMap<Comment, { thread: CommentThread; findingId: string; text: string }>();
+/** What each shown comment is — the comment commands (edit, delete) get the comment, not its thread. The
+ *  first comment is the finding itself (`noteId` absent), the rest are notes on it; `text` is what an
+ *  edit of the reader's own comment falls back to. */
+const commentRefs = new WeakMap<Comment, { thread: CommentThread; findingId: string; noteId?: string; text: string }>();
 
 /** Any line of a review diff's right side takes a comment; the rest of the editor takes none. */
 const commentingRangeProvider: CommentingRangeProvider = {
@@ -123,7 +131,6 @@ function applyItem(thread: CommentThread, item: ReviewThreadItem): void {
 			author: { name: l10n.t('You') },
 			contextValue: 'user-comment',
 		};
-		userComments.set(first, { thread: thread, findingId: item.findingId, text: item.description });
 	} else {
 		first = {
 			body: new MarkdownString(`**${severityLabel(item.severity)}** · ${item.title}\n\n${item.description}`),
@@ -134,10 +141,17 @@ function applyItem(thread: CommentThread, item: ReviewThreadItem): void {
 			contextValue: item.state,
 		};
 	}
-	thread.comments = [first, ...(item.notes ?? []).map(toNoteComment)];
+	commentRefs.set(first, { thread: thread, findingId: item.findingId, text: item.description });
+	const notes = (item.notes ?? []).map(note => {
+		const comment = toNoteComment(note);
+		if (note.id != null) {
+			commentRefs.set(comment, { thread: thread, findingId: item.findingId, noteId: note.id, text: note.text });
+		}
+		return comment;
+	});
+	thread.comments = [first, ...notes];
 	thread.label = isUser ? l10n.t('Comment') : severityLabel(item.severity);
-	// `-user` keeps the reader's threads apart in the menus: theirs is removed rather than dismissed
-	thread.contextValue = isUser ? `${item.state}-user` : item.state;
+	thread.contextValue = item.state;
 	thread.state = item.state === 'open' ? CommentThreadState.Unresolved : CommentThreadState.Resolved;
 	thread.collapsibleState =
 		item.state === 'open' ? CommentThreadCollapsibleState.Expanded : CommentThreadCollapsibleState.Collapsed;
@@ -269,7 +283,7 @@ function adoptReaderThread(thread: CommentThread, text: string): string | undefi
 }
 
 function setUserCommentMode(comment: Comment, mode: CommentMode, text?: string): void {
-	const found = userComments.get(comment);
+	const found = commentRefs.get(comment);
 	if (found == null) return;
 
 	comment.mode = mode;
@@ -288,7 +302,7 @@ export function editReviewComment(comment: Comment | undefined): void {
 
 /** Puts the comment back as it was. */
 export function cancelReviewCommentEdit(comment: Comment | undefined): void {
-	const found = comment != null ? userComments.get(comment) : undefined;
+	const found = comment != null ? commentRefs.get(comment) : undefined;
 	if (comment == null || found == null) return;
 
 	setUserCommentMode(comment, CommentMode.Preview, found.text);
@@ -296,7 +310,7 @@ export function cancelReviewCommentEdit(comment: Comment | undefined): void {
 
 /** The edited words go to the graph; the thread shows them at once. Emptied out, the comment stays as it was. */
 export function saveReviewComment(comment: Comment | undefined): void {
-	const found = comment != null ? userComments.get(comment) : undefined;
+	const found = comment != null ? commentRefs.get(comment) : undefined;
 	if (comment == null || found == null) return;
 
 	const text = (typeof comment.body === 'string' ? comment.body : comment.body.value).trim();
@@ -310,18 +324,38 @@ export function saveReviewComment(comment: Comment | undefined): void {
 	owner?.reviewThreadAction(found.findingId, 'editComment', text);
 }
 
-/** Removes the reader's comment — its thread goes at once, the review follows. */
+/** Removes a comment from its thread: a note goes by itself; the first comment is the finding, so it takes
+ *  the whole thread — and the finding's threads elsewhere — with it. The editor changes at once, the review
+ *  follows. A reply still on its way to the review has nothing to be removed by yet and stays. */
 export function deleteReviewComment(comment: Comment | undefined): void {
-	const found = comment != null ? userComments.get(comment) : undefined;
-	if (found == null) return;
+	const found = comment != null ? commentRefs.get(comment) : undefined;
+	if (comment == null || found == null) return;
 
+	if (found.noteId == null) {
+		deleteFindingThreads(found.findingId);
+		return;
+	}
+
+	found.thread.comments = found.thread.comments.filter(c => c !== comment);
+	owner?.reviewThreadAction(found.findingId, 'deleteNote', undefined, undefined, found.noteId);
+}
+
+/** Removes the thread's finding — every thread it has, with all their comments. */
+export function deleteReviewThread(thread: CommentThread | undefined): void {
+	const findingId = thread != null ? threadFindings.get(thread) : undefined;
+	if (findingId == null) return;
+
+	deleteFindingThreads(findingId);
+}
+
+function deleteFindingThreads(findingId: string): void {
 	for (const [id, thread] of threads) {
-		if (threadFindings.get(thread) !== found.findingId) continue;
+		if (threadFindings.get(thread) !== findingId) continue;
 
 		thread.dispose();
 		threads.delete(id);
 	}
-	owner?.reviewThreadAction(found.findingId, 'deleteComment');
+	owner?.reviewThreadAction(findingId, 'delete');
 }
 
 function clearThreads(): void {

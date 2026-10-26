@@ -116,11 +116,12 @@ import type { GlDetailsComposeModePanel } from './gl-details-compose-mode-panel.
 import type { GlDetailsResolveModePanel } from './gl-details-resolve-mode-panel.js';
 import type {
 	ReviewAnalyzeAreaDetail,
-	ReviewCommentDeleteDetail,
 	ReviewCopiedDetail,
 	ReviewDeepReviewDetail,
 	ReviewFileExcludedDetail,
 	ReviewFilesViewedDetail,
+	ReviewFindingDeleteDetail,
+	ReviewFindingNoteDeleteDetail,
 	ReviewFindingNoteDetail,
 	ReviewFindingStateDetail,
 	ReviewOpenFileDetail,
@@ -4161,8 +4162,10 @@ export class GlGraphDetailsPanel extends SignalWatcher(LitElement) {
 				this._workflow.review.setFindingState(e.detail.findingId, e.detail.state)}
 			@review-finding-note=${(e: CustomEvent<ReviewFindingNoteDetail>) =>
 				this._workflow.review.addFindingNote(e.detail.findingId, e.detail.text)}
-			@review-comment-delete=${(e: CustomEvent<ReviewCommentDeleteDetail>) =>
-				this._workflow.review.deleteComment(e.detail.findingId)}
+			@review-finding-delete=${(e: CustomEvent<ReviewFindingDeleteDetail>) =>
+				this._workflow.review.deleteFinding(e.detail.findingId)}
+			@review-finding-note-delete=${(e: CustomEvent<ReviewFindingNoteDeleteDetail>) =>
+				this._workflow.review.deleteFindingNote(e.detail.findingId, e.detail.noteId)}
 			@review-orient=${(e: CustomEvent<{ prompt?: string }>) => {
 				if (this._state.aiModel.get() == null) {
 					this._actions.switchAIModel('review');

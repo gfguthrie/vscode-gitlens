@@ -69,6 +69,7 @@ import type {
 	ReviewFindingCounts,
 	ReviewFindingState,
 	ReviewProgress,
+	ReviewReply,
 	ReviewSession,
 } from './reviewSession.js';
 import {
@@ -80,6 +81,7 @@ import {
 	getReviewProgress,
 	getReviewReadingOrder,
 	getReviewReadingShortcut,
+	getReviewReplies,
 	isReviewComplete,
 	userFocusAreaId,
 } from './reviewSession.js';
@@ -132,8 +134,13 @@ export interface ReviewFindingNoteDetail {
 	text: string;
 }
 
-export interface ReviewCommentDeleteDetail {
+export interface ReviewFindingDeleteDetail {
 	findingId: string;
+}
+
+export interface ReviewFindingNoteDeleteDetail {
+	findingId: string;
+	noteId: string;
 }
 
 export interface ReviewDeepReviewDetail {
@@ -1118,9 +1125,6 @@ export class GlDetailsReviewModePanel extends LitElement {
 					count: counts.open,
 				}),
 			);
-			if (counts.resolved > 0) {
-				parts.push(l10n.t('{count} resolved', { count: counts.resolved }));
-			}
 			if (counts.dismissed > 0) {
 				parts.push(l10n.t('{count} dismissed', { count: counts.dismissed }));
 			}
@@ -1306,9 +1310,8 @@ export class GlDetailsReviewModePanel extends LitElement {
 		];
 		if (this.result != null) {
 			lines.push(
-				`- ${l10n.t('Findings: {open} open, {resolved} resolved, {dismissed} dismissed', {
+				`- ${l10n.t('Findings: {open} open, {dismissed} dismissed', {
 					open: counts.open,
-					resolved: counts.resolved,
 					dismissed: counts.dismissed,
 				})}`,
 			);
@@ -1682,7 +1685,7 @@ export class GlDetailsReviewModePanel extends LitElement {
 	};
 
 	/** The row's findings mark: the open count in the color of the worst one, or the closed count, muted,
-	 *  once every finding on the file has been resolved or dismissed. The findings themselves sit in the
+	 *  once every finding on the file has been dismissed. The findings themselves sit in the
 	 *  diff as comment threads, which the tooltip says. */
 	private getFindingsDecoration(findings: ReviewFileFindings): TreeItemDecoration {
 		const action = findings.target != null ? 'review-file-findings' : undefined;
@@ -1982,7 +1985,7 @@ export class GlDetailsReviewModePanel extends LitElement {
 								? formatPlural(
 										l10n.t('{count, plural, one{{count} comment} other{{count} comments}}'),
 										{
-											count: area.findings?.length ?? 0,
+											count: (area.findings?.length ?? 0) + this.replies.length,
 										},
 									)
 								: formatPlural(l10n.t('{count, plural, one{{count} file} other{{count} files}}'), {
@@ -1994,86 +1997,169 @@ export class GlDetailsReviewModePanel extends LitElement {
 				${this.renderFocusAreaActions(area, { isAnalyzed: isAnalyzed })}
 			</div>
 			${
-				isExpanded
-					? html`<div class="review-area__body">
-							<div class="review-area__rationale">${area.rationale}</div>
-							<div class="review-area__files">
-								${this.getAreaFiles(area).map(f => {
-									// Split off a trailing `:line` or `:start-end` so the line range gets a
-									// muted color (it's a locator, not part of the path).
-									const match = f.match(/^(.+?)(?::(\d+)(?:-(\d+))?)?$/);
-									const path = match?.[1] ?? f;
-									let start = match?.[2] != null ? Number(match[2]) : undefined;
-									let end = match?.[3] != null ? Number(match[3]) : start;
-									// Without a locator of its own, the link lands on the area's first finding in
-									// the file — the thread is there, not at the top
-									if (start == null) {
-										const first = area.findings
-											?.flatMap(fi => getReviewFindingLocations(fi))
-											.find(l => l.filePath === path && l.lineRange != null);
-										start = first?.lineRange?.start;
-										end = first?.lineRange?.end ?? start;
-									}
-									const lineRange =
-										start == null ? '' : end !== start ? `:${start}-${end}` : `:${start}`;
-									return html`<button
-										class="review-area__file-link"
-										@click=${() => this.handleOpenFile(path, start, end)}
-									>
-										<code-icon class="review-area__file-link-icon" icon="go-to-file"></code-icon>
-										<span class="review-area__file-link-text">${path}</span>
-										${
-											lineRange
-												? html`<span class="review-area__file-link-lines">${lineRange}</span>`
-												: nothing
+				isExpanded && area.id === userFocusAreaId
+					? this.renderReaderAreaBody(area)
+					: isExpanded
+						? html`<div class="review-area__body">
+								<div class="review-area__rationale">${area.rationale}</div>
+								<div class="review-area__files">
+									${this.getAreaFiles(area).map(f => {
+										// Split off a trailing `:line` or `:start-end` so the line range gets a
+										// muted color (it's a locator, not part of the path).
+										const match = f.match(/^(.+?)(?::(\d+)(?:-(\d+))?)?$/);
+										const path = match?.[1] ?? f;
+										let start = match?.[2] != null ? Number(match[2]) : undefined;
+										let end = match?.[3] != null ? Number(match[3]) : start;
+										// Without a locator of its own, the link lands on the area's first finding in
+										// the file — the thread is there, not at the top
+										if (start == null) {
+											const first = area.findings
+												?.flatMap(fi => getReviewFindingLocations(fi))
+												.find(l => l.filePath === path && l.lineRange != null);
+											start = first?.lineRange?.start;
+											end = first?.lineRange?.end ?? start;
 										}
-									</button>`;
-								})}
-							</div>
-							${
-								needsAnalyze
-									? html`<button
-											class="review-area__analyze-btn"
-											@click=${() => this.handleAnalyzeArea(area)}
+										const lineRange =
+											start == null ? '' : end !== start ? `:${start}-${end}` : `:${start}`;
+										return html`<button
+											class="review-area__file-link"
+											@click=${() => this.handleOpenFile(path, start, end)}
 										>
-											<code-icon icon="search"></code-icon>
-											${l10n.t('Review Files')}
-										</button>`
-									: nothing
-							}
-							${
-								isLoading
-									? html`<div class="review-area__loading" aria-live="polite">
-											<code-icon icon="loading" modifier="spin"></code-icon>
-											${l10n.t('Reviewing files...')}
-										</div>`
-									: nothing
-							}
-							${
-								hasError
-									? html`<div class="review-area__error" role="alert">
-											<code-icon icon="error"></code-icon>
-											${l10n.t('Failed to review files.')}
-											<button
-												class="review-area__retry-btn"
+											<code-icon
+												class="review-area__file-link-icon"
+												icon="go-to-file"
+											></code-icon>
+											<span class="review-area__file-link-text">${path}</span>
+											${
+												lineRange
+													? html`<span class="review-area__file-link-lines"
+															>${lineRange}</span
+														>`
+													: nothing
+											}
+										</button>`;
+									})}
+								</div>
+								${
+									needsAnalyze
+										? html`<button
+												class="review-area__analyze-btn"
 												@click=${() => this.handleAnalyzeArea(area)}
 											>
-												${l10n.t('Retry')}
-											</button>
-										</div>`
-									: nothing
-							}
-							${
-								hasFindings
-									? this.renderFindings(area.findings, area)
-									: isAnalyzed && !isLoading && !hasError
-										? html`<div class="review-area__clean" aria-live="polite">
-												<code-icon icon="pass"></code-icon>
-												${l10n.t('No issues found in these files.')}
+												<code-icon icon="search"></code-icon>
+												${l10n.t('Review Files')}
+											</button>`
+										: nothing
+								}
+								${
+									isLoading
+										? html`<div class="review-area__loading" aria-live="polite">
+												<code-icon icon="loading" modifier="spin"></code-icon>
+												${l10n.t('Reviewing files...')}
 											</div>`
 										: nothing
+								}
+								${
+									hasError
+										? html`<div class="review-area__error" role="alert">
+												<code-icon icon="error"></code-icon>
+												${l10n.t('Failed to review files.')}
+												<button
+													class="review-area__retry-btn"
+													@click=${() => this.handleAnalyzeArea(area)}
+												>
+													${l10n.t('Retry')}
+												</button>
+											</div>`
+										: nothing
+								}
+								${
+									hasFindings
+										? this.renderFindings(area.findings, area)
+										: isAnalyzed && !isLoading && !hasError
+											? html`<div class="review-area__clean" aria-live="polite">
+													<code-icon icon="pass"></code-icon>
+													${l10n.t('No issues found in these files.')}
+												</div>`
+											: nothing
+								}
+							</div>`
+						: nothing
+			}
+		</div>`;
+	}
+
+	/** The reader's replies on the other findings' threads — they show in their findings too; here they sit
+	 *  with the reader's own comments, so everything the reader said is in one place. */
+	private get replies(): ReviewReply[] {
+		return getReviewReplies(this.result, this.session);
+	}
+
+	private renderReaderAreaBody(area: AIReviewFocusArea) {
+		const replies = this.replies;
+		return html`<div class="review-area__body">
+			<div class="review-area__rationale">${area.rationale}</div>
+			${area.findings?.length ? this.renderFindings(area.findings, area) : nothing}
+			${
+				replies.length
+					? html`<div class="review-findings">${replies.map(reply => this.renderReply(reply))}</div>`
+					: nothing
+			}
+		</div>`;
+	}
+
+	private renderReply({ finding, note }: ReviewReply) {
+		const location = getReviewFindingLocations(finding)[0];
+		const closed = this.session?.findingStates.get(finding.id) != null;
+		return html`<div
+			class="review-finding review-finding--reader review-finding--reply ${closed ? 'review-finding--closed' : ''}"
+			data-severity="comment"
+		>
+			<div class="review-finding__header">
+				<span class="review-finding__title review-finding__title--reader"
+					>${l10n.t('You, on “{title}”', { title: getReviewFindingTitle(finding) })}</span
+				>
+				<span class="review-finding__actions">
+					${
+						note.id != null
+							? html`<gl-button
+									appearance="toolbar"
+									density="compact"
+									tooltip=${l10n.t('Delete Comment')}
+									@click=${() => this.handleDeleteNote(finding.id, note.id!)}
+								>
+									<code-icon icon="trash"></code-icon>
+								</gl-button>`
+							: nothing
+					}
+				</span>
+			</div>
+			<div class="review-finding__description">${note.text}</div>
+			${
+				location != null
+					? html`<button
+							class="review-finding__location"
+							@click=${() =>
+								this.handleOpenFile(
+									location.filePath,
+									location.lineRange?.start,
+									location.lineRange?.end,
+								)}
+						>
+							<code-icon class="review-finding__location-icon" icon="go-to-file"></code-icon>
+							<span class="review-finding__location-text">${location.filePath}</span>
+							${
+								location.lineRange
+									? html`<span class="review-finding__location-lines"
+											>:${location.lineRange.start}${
+												location.lineRange.end !== location.lineRange.start
+													? `-${location.lineRange.end}`
+													: ''
+											}</span
+										>`
+									: nothing
 							}
-						</div>`
+						</button>`
 					: nothing
 			}
 		</div>`;
@@ -2198,13 +2284,7 @@ export class GlDetailsReviewModePanel extends LitElement {
 							>`
 						: nothing
 				}
-				${
-					state != null
-						? html`<span class="review-finding__state"
-								>${state === 'resolved' ? l10n.t('Resolved') : l10n.t('Dismissed')}</span
-							>`
-						: nothing
-				}
+				${state != null ? html`<span class="review-finding__state">${l10n.t('Dismissed')}</span>` : nothing}
 				<span class="review-finding__actions">
 					<gl-copy-container
 						appearance="toolbar"
@@ -2237,25 +2317,13 @@ export class GlDetailsReviewModePanel extends LitElement {
 					${
 						state == null
 							? html`<gl-button
-										appearance="toolbar"
-										density="compact"
-										tooltip=${l10n.t('Resolve')}
-										@click=${() => this.handleFindingState(finding.id, 'resolved')}
-									>
-										<code-icon icon="check"></code-icon>
-									</gl-button>
-									${
-										isReader
-											? nothing
-											: html`<gl-button
-													appearance="toolbar"
-													density="compact"
-													tooltip=${l10n.t('Dismiss')}
-													@click=${() => this.handleFindingState(finding.id, 'dismissed')}
-												>
-													<code-icon icon="close"></code-icon>
-												</gl-button>`
-									}`
+									appearance="toolbar"
+									density="compact"
+									tooltip=${l10n.t('Dismiss')}
+									@click=${() => this.handleFindingState(finding.id, 'dismissed')}
+								>
+									<code-icon icon="close"></code-icon>
+								</gl-button>`
 							: html`<gl-button
 									appearance="toolbar"
 									density="compact"
@@ -2265,18 +2333,14 @@ export class GlDetailsReviewModePanel extends LitElement {
 									<code-icon icon="issue-reopened"></code-icon>
 								</gl-button>`
 					}
-					${
-						isReader
-							? html`<gl-button
-									appearance="toolbar"
-									density="compact"
-									tooltip=${l10n.t('Delete Comment')}
-									@click=${() => this.handleDeleteComment(finding.id)}
-								>
-									<code-icon icon="trash"></code-icon>
-								</gl-button>`
-							: nothing
-					}
+					<gl-button
+						appearance="toolbar"
+						density="compact"
+						tooltip=${isReader ? l10n.t('Delete Comment') : l10n.t('Delete Finding')}
+						@click=${() => this.handleDeleteFinding(finding.id)}
+					>
+						<code-icon icon="trash"></code-icon>
+					</gl-button>
 				</span>
 			</div>
 			<div class="review-finding__description">${finding.description}</div>
@@ -2426,6 +2490,19 @@ export class GlDetailsReviewModePanel extends LitElement {
 						>${note.author === 'agent' ? l10n.t('Agent') : l10n.t('You')}</span
 					>
 					<span class="review-finding__note-text">${note.text}</span>
+					${
+						note.id != null
+							? html`<gl-button
+									class="review-finding__note-delete"
+									appearance="toolbar"
+									density="compact"
+									tooltip=${l10n.t('Delete Comment')}
+									@click=${() => this.handleDeleteNote(findingId, note.id!)}
+								>
+									<code-icon icon="trash"></code-icon>
+								</gl-button>`
+							: nothing
+					}
 				</div>`,
 			)}
 			${
@@ -2462,10 +2539,20 @@ export class GlDetailsReviewModePanel extends LitElement {
 		</div>`;
 	}
 
-	private handleDeleteComment(findingId: string): void {
+	private handleDeleteFinding(findingId: string): void {
 		this.dispatchEvent(
-			new CustomEvent<ReviewCommentDeleteDetail>('review-comment-delete', {
+			new CustomEvent<ReviewFindingDeleteDetail>('review-finding-delete', {
 				detail: { findingId: findingId },
+				bubbles: true,
+				composed: true,
+			}),
+		);
+	}
+
+	private handleDeleteNote(findingId: string, noteId: string): void {
+		this.dispatchEvent(
+			new CustomEvent<ReviewFindingNoteDeleteDetail>('review-finding-note-delete', {
+				detail: { findingId: findingId, noteId: noteId },
 				bubbles: true,
 				composed: true,
 			}),

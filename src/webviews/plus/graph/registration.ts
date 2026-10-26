@@ -40,6 +40,7 @@ import { stepReviewReading } from './reviewReading.js';
 import {
 	cancelReviewCommentEdit,
 	deleteReviewComment,
+	deleteReviewThread,
 	disposeReviewThreads,
 	editReviewComment,
 	runReviewThreadAction,
@@ -285,9 +286,6 @@ export function registerGraphWebviewCommands<T>(
 			stepReviewReading('markViewed', uri),
 		),
 		registerCommand('gitlens.review.markViewedAndNext:key', () => stepReviewReading('markViewed')),
-		registerCommand('gitlens.review.resolveFinding', (thread?: CommentThread) =>
-			runReviewThreadAction(thread, 'resolve'),
-		),
 		registerCommand('gitlens.review.dismissFinding', (thread?: CommentThread) =>
 			runReviewThreadAction(thread, 'dismiss'),
 		),
@@ -308,6 +306,7 @@ export function registerGraphWebviewCommands<T>(
 		registerCommand('gitlens.review.saveComment', (comment?: Comment) => saveReviewComment(comment)),
 		registerCommand('gitlens.review.cancelCommentEdit', (comment?: Comment) => cancelReviewCommentEdit(comment)),
 		registerCommand('gitlens.review.deleteComment', (comment?: Comment) => deleteReviewComment(comment)),
+		registerCommand('gitlens.review.deleteThread', (thread?: CommentThread) => deleteReviewThread(thread)),
 		{ dispose: () => disposeReviewThreads() },
 		registerCommand('gitlens.showGitHealth', async (...args: unknown[]) => {
 			// Canonical entry point for the Health surface — the palette, the Phase 3 banner CTA, and any
