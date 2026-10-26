@@ -1,4 +1,4 @@
-import type { Comment, CommentReply, CommentThread, Uri } from 'vscode';
+import type { Comment, CommentingRangeProvider, CommentReply, CommentThread, TextDocument, Uri } from 'vscode';
 import {
 	CommentMode,
 	comments,
@@ -10,13 +10,23 @@ import {
 } from 'vscode';
 import type { AIReviewSeverity } from '@gitlens/ai/models/results.js';
 import { isUncommitted, isUncommittedStaged } from '@gitlens/git/utils/revision.utils.js';
+import { uuid } from '@gitlens/utils/crypto.js';
 import type { Container } from '../../../container.js';
 import { GitUri } from '../../../git/gitUri.js';
-import type { ReviewFindingNote, ReviewThreadAction, ReviewThreadItem, ReviewThreadsArgs } from './graphService.js';
+import type {
+	ReviewCommentPlace,
+	ReviewFindingNote,
+	ReviewThreadAction,
+	ReviewThreadItem,
+	ReviewThreadsArgs,
+} from './graphService.js';
 
 /** The graph instance whose findings the threads show; thread actions go back to it. */
 export interface ReviewThreadsOwner {
-	reviewThreadAction(findingId: string, action: ReviewThreadAction, text?: string): void;
+	reviewThreadAction(findingId: string, action: ReviewThreadAction, text?: string, place?: ReviewCommentPlace): void;
+	/** The review file `uri` is, when it is the right side of one of the review's diffs — where the reader
+	 *  can open a thread of their own. */
+	reviewCommentPath(uri: Uri): string | undefined;
 }
 
 const controllerId = 'gitlens.review';
@@ -24,6 +34,17 @@ let controller: ReturnType<typeof comments.createCommentController> | undefined;
 let owner: ReviewThreadsOwner | undefined;
 const threads = new Map<string, CommentThread>();
 const threadFindings = new WeakMap<CommentThread, string>();
+/** The reader's comment as its thread shows it — the edit and delete commands get the comment, not the thread. */
+const userComments = new WeakMap<Comment, { thread: CommentThread; findingId: string; text: string }>();
+
+/** Any line of a review diff's right side takes a comment; the rest of the editor takes none. */
+const commentingRangeProvider: CommentingRangeProvider = {
+	provideCommentingRanges: (document: TextDocument) => {
+		if (owner?.reviewCommentPath(document.uri) == null) return undefined;
+
+		return [new Range(0, 0, Math.max(0, document.lineCount - 1), 0)];
+	},
+};
 
 function getController() {
 	if (controller == null) {
@@ -36,8 +57,26 @@ function getController() {
 				'A note for the fix and the later review — why it was closed, a question, a correction…',
 			),
 		};
+		controller.commentingRangeProvider = commentingRangeProvider;
 	}
 	return controller;
+}
+
+/** Makes `next` the owner the editor's comment gutter asks — the graph whose review files are set. */
+export function claimReviewCommenting(next: ReviewThreadsOwner): void {
+	if (owner !== next) {
+		clearThreads();
+		owner = next;
+	}
+	refreshReviewCommenting();
+}
+
+/** Has the editor ask again where comments can go — the review's files or its open diffs changed. Setting
+ *  the provider is what makes VS Code re-ask. */
+export function refreshReviewCommenting(): void {
+	if (controller == null && owner == null) return;
+
+	getController().commentingRangeProvider = commentingRangeProvider;
 }
 
 function severityLabel(severity: AIReviewSeverity): string {
@@ -74,18 +113,31 @@ function toNoteComment(note: ReviewFindingNote): Comment {
 }
 
 function applyItem(thread: CommentThread, item: ReviewThreadItem): void {
-	const body = new MarkdownString(`**${severityLabel(item.severity)}** · ${item.title}\n\n${item.description}`);
-	thread.comments = [
-		{
-			body: body,
+	const isUser = item.source === 'user';
+	let first: Comment;
+	if (isUser) {
+		// The reader's own comment: their words as they wrote them, no severity or title over them
+		first = {
+			body: new MarkdownString(item.description),
 			mode: CommentMode.Preview,
-			author: { name: item.source === 'agent' ? l10n.t('Review in Repo (agent)') : l10n.t('GitLens AI Review') },
+			author: { name: l10n.t('You') },
+			contextValue: 'user-comment',
+		};
+		userComments.set(first, { thread: thread, findingId: item.findingId, text: item.description });
+	} else {
+		first = {
+			body: new MarkdownString(`**${severityLabel(item.severity)}** · ${item.title}\n\n${item.description}`),
+			mode: CommentMode.Preview,
+			author: {
+				name: item.source === 'agent' ? l10n.t('Review in Repo (agent)') : l10n.t('GitLens AI Review'),
+			},
 			contextValue: item.state,
-		},
-		...(item.notes ?? []).map(toNoteComment),
-	];
-	thread.label = severityLabel(item.severity);
-	thread.contextValue = item.state;
+		};
+	}
+	thread.comments = [first, ...(item.notes ?? []).map(toNoteComment)];
+	thread.label = isUser ? l10n.t('Comment') : severityLabel(item.severity);
+	// `-user` keeps the reader's threads apart in the menus: theirs is removed rather than dismissed
+	thread.contextValue = isUser ? `${item.state}-user` : item.state;
 	thread.state = item.state === 'open' ? CommentThreadState.Unresolved : CommentThreadState.Resolved;
 	thread.collapsibleState =
 		item.state === 'open' ? CommentThreadCollapsibleState.Expanded : CommentThreadCollapsibleState.Collapsed;
@@ -143,6 +195,7 @@ export function releaseReviewThreads(from: ReviewThreadsOwner): void {
 
 	clearThreads();
 	owner = undefined;
+	refreshReviewCommenting();
 }
 
 /** What a thread's title-bar command does: hand the finding back to the graph that owns it. */
@@ -164,7 +217,15 @@ export function runReviewThreadReply(
 
 	const text = reply.text.trim();
 	const findingId = threadFindings.get(reply.thread);
-	if (findingId == null) return;
+	if (findingId == null) {
+		// A thread the reader opened on a line: the words are a comment of theirs, which the reviewer or the
+		// fixer can then be asked to take up
+		const id = text ? adoptReaderThread(reply.thread, text) : undefined;
+		if (id != null && action !== 'reply') {
+			owner?.reviewThreadAction(id, action);
+		}
+		return;
+	}
 	// A bare reply needs words; asking the reviewer or the fixer to take the thread up does not
 	if (!text && action === 'reply') return;
 
@@ -175,6 +236,92 @@ export function runReviewThreadReply(
 		];
 	}
 	owner?.reviewThreadAction(findingId, action, text || undefined);
+}
+
+/** Takes a thread the editor made from the gutter into the review: it becomes the new comment's thread,
+ *  shown at once with the words in it, and the comment goes to the graph. */
+function adoptReaderThread(thread: CommentThread, text: string): string | undefined {
+	const path = owner?.reviewCommentPath(thread.uri);
+	if (owner == null || path == null || thread.range == null) return undefined;
+
+	const id = `user-${uuid()}`;
+	const place: ReviewCommentPlace = {
+		path: path,
+		line: thread.range.start.line + 1,
+		lineEnd: thread.range.end.line + 1,
+	};
+	threads.set(id, thread);
+	threadFindings.set(thread, id);
+	applyItem(thread, {
+		id: id,
+		findingId: id,
+		path: place.path,
+		line: place.line,
+		lineEnd: place.lineEnd,
+		severity: 'suggestion',
+		title: '',
+		description: text,
+		state: 'open',
+		source: 'user',
+	});
+	owner.reviewThreadAction(id, 'comment', text, place);
+	return id;
+}
+
+function setUserCommentMode(comment: Comment, mode: CommentMode, text?: string): void {
+	const found = userComments.get(comment);
+	if (found == null) return;
+
+	comment.mode = mode;
+	if (text != null) {
+		comment.body = new MarkdownString(text);
+	}
+	found.thread.comments = [...found.thread.comments];
+}
+
+/** The reader's comment opens for editing in place. */
+export function editReviewComment(comment: Comment | undefined): void {
+	if (comment == null) return;
+
+	setUserCommentMode(comment, CommentMode.Editing);
+}
+
+/** Puts the comment back as it was. */
+export function cancelReviewCommentEdit(comment: Comment | undefined): void {
+	const found = comment != null ? userComments.get(comment) : undefined;
+	if (comment == null || found == null) return;
+
+	setUserCommentMode(comment, CommentMode.Preview, found.text);
+}
+
+/** The edited words go to the graph; the thread shows them at once. Emptied out, the comment stays as it was. */
+export function saveReviewComment(comment: Comment | undefined): void {
+	const found = comment != null ? userComments.get(comment) : undefined;
+	if (comment == null || found == null) return;
+
+	const text = (typeof comment.body === 'string' ? comment.body : comment.body.value).trim();
+	if (!text || text === found.text) {
+		setUserCommentMode(comment, CommentMode.Preview, found.text);
+		return;
+	}
+
+	found.text = text;
+	setUserCommentMode(comment, CommentMode.Preview, text);
+	owner?.reviewThreadAction(found.findingId, 'editComment', text);
+}
+
+/** Removes the reader's comment — its thread goes at once, the review follows. */
+export function deleteReviewComment(comment: Comment | undefined): void {
+	const found = comment != null ? userComments.get(comment) : undefined;
+	if (found == null) return;
+
+	for (const [id, thread] of threads) {
+		if (threadFindings.get(thread) !== found.findingId) continue;
+
+		thread.dispose();
+		threads.delete(id);
+	}
+	owner?.reviewThreadAction(found.findingId, 'deleteComment');
 }
 
 function clearThreads(): void {

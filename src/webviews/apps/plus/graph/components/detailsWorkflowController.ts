@@ -45,13 +45,17 @@ import { abortRunningOperation, compareSides } from './detailsState.js';
 import type { ScopeItem } from './gl-commits-scope-pane.js';
 import type { ReviewFileIdentity, ReviewFindingState, ReviewSession } from './reviewSession.js';
 import {
+	createReviewComment,
 	emptyReviewSession,
 	withFileExcluded,
 	withFilesViewed,
 	withFindingNote,
 	withFindingState,
 	withoutFindings,
+	withoutReviewComment,
 	withReadingOrder,
+	withReviewComment,
+	withReviewCommentText,
 } from './reviewSession.js';
 
 /** Modes are panel lenses on the current selection — compose/review only. Compare is no
@@ -1125,6 +1129,9 @@ export class DetailsWorkflowController implements ReactiveController {
 			this.updateReviewSession(session =>
 				withFindingNote(session, findingId, { author: 'user', text: text, at: Date.now() }),
 			),
+		/** Removes the reader's own comment, from its card — the thread's delete lands in {@link applyThreadActions}. */
+		deleteComment: (findingId: string): void =>
+			this.updateReviewSession(session => withoutReviewComment(session, findingId)),
 		/** The orient depth: a reading plan for the checklist, tracked on the entry like a focus-area run. */
 		runOrient: (
 			repoPath: string | undefined,
@@ -1325,18 +1332,34 @@ export class DetailsWorkflowController implements ReactiveController {
 			if (state == null) return;
 
 			const anchor = this.currentAnchor();
-			const entry = this.host.crossPaneState.runningOperations.get().get(anchorKey(anchor))?.review;
-			if (entry == null) return;
-
-			const applied = entry.threadActionsApplied ?? 0;
+			const existing = this.host.crossPaneState.runningOperations.get().get(anchorKey(anchor))?.review;
+			const applied = existing?.threadActionsApplied ?? 0;
 			const fresh = state.actions.filter(a => a.seq > applied);
-			if (fresh.length === 0) return;
+			// A comment of the reader's own can come before any run — it starts the review's entry the way
+			// a viewed mark does
+			if (fresh.length === 0 || (existing == null && !fresh.some(a => a.action === 'comment'))) return;
 
+			const entry = existing ?? { kind: 'review' as const, anchor: anchor, execState: 'backed' as const };
 			let session = entry.session ?? emptyReviewSession;
 			// Hand-offs run after the session is registered, so what they send carries the reply
 			const handOffs: (() => void)[] = [];
-			for (const { findingId, action, text } of fresh) {
+			let commented = false;
+			for (const { findingId, action, text, place } of fresh) {
 				switch (action) {
+					case 'comment':
+						if (text && place != null) {
+							session = withReviewComment(session, createReviewComment(findingId, place, text));
+							commented = true;
+						}
+						break;
+					case 'editComment':
+						if (text) {
+							session = withReviewCommentText(session, findingId, text);
+						}
+						break;
+					case 'deleteComment':
+						session = withoutReviewComment(session, findingId);
+						break;
 					case 'resolve':
 						session = withFindingState(session, findingId, 'resolved');
 						break;
@@ -1367,8 +1390,11 @@ export class DetailsWorkflowController implements ReactiveController {
 						break;
 				}
 			}
+			// The comments show with the findings, so a review sitting on its checklist (no run yet, the
+			// findings discarded or stepped back from) opens to them when one is written
 			this.registerRunningOperation({
 				...entry,
+				...(commented && entry.execState === 'backed' ? { execState: 'complete' as const } : {}),
 				session: session,
 				threadActionsApplied: fresh.at(-1)!.seq,
 			});
@@ -1454,8 +1480,9 @@ export class DetailsWorkflowController implements ReactiveController {
 			}
 			this.actions.resources.review.mutate(enriched);
 		},
-		// Throws away the AI's findings, not the review: viewed marks, set-aside files and a running
-		// reading state stay, and the panel lands back on the checklist.
+		// Throws away the AI's findings, not the review: viewed marks, set-aside files, the reader's own
+		// comments and a running reading state stay, and the panel lands back on the checklist — or on the
+		// comments, when there are any.
 		discard: (): void => {
 			this.actions.sendTelemetryEvent('graphDetails/review/discarded');
 			const entry = this.host.crossPaneState.runningOperations.get().get(anchorKey(this.currentAnchor()))?.review;
@@ -1470,6 +1497,10 @@ export class DetailsWorkflowController implements ReactiveController {
 			});
 			this.enterBackedNoResult('review');
 			this.actions.state.reviewPreErrorValue.set(undefined);
+			const after = this.host.crossPaneState.runningOperations.get().get(anchorKey(this.currentAnchor()))?.review;
+			if (after?.session?.comments?.length) {
+				this.registerRunningOperation({ ...after, execState: 'complete' });
+			}
 		},
 	};
 

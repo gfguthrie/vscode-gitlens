@@ -81,6 +81,7 @@ import {
 	getReviewReadingOrder,
 	getReviewReadingShortcut,
 	isReviewComplete,
+	userFocusAreaId,
 } from './reviewSession.js';
 import { scopeSplitSnap, wipScopeSelectionIds } from './shared-panel-helpers.js';
 import { renderErrorState, renderLoadingState } from './shared-panel-templates.js';
@@ -131,6 +132,10 @@ export interface ReviewFindingNoteDetail {
 	text: string;
 }
 
+export interface ReviewCommentDeleteDetail {
+	findingId: string;
+}
+
 export interface ReviewDeepReviewDetail {
 	prompt?: string;
 	scopeLabel: string;
@@ -164,10 +169,14 @@ export interface ReviewCopiedDetail {
  *  but the same logical run. */
 function isSameRunResultDelta(prev: AIReviewResult | undefined, next: AIReviewResult | undefined): boolean {
 	if (prev == null || next == null) return false;
-	if (prev.focusAreas.length !== next.focusAreas.length) return false;
 
-	for (let i = 0; i < prev.focusAreas.length; i++) {
-		if (prev.focusAreas[i].id !== next.focusAreas[i].id) return false;
+	// The reader's comments come and go without a run — their area doesn't make a result a new one
+	const prevAreas = prev.focusAreas.filter(a => a.id !== userFocusAreaId);
+	const nextAreas = next.focusAreas.filter(a => a.id !== userFocusAreaId);
+	if (prevAreas.length !== nextAreas.length) return false;
+
+	for (let i = 0; i < prevAreas.length; i++) {
+		if (prevAreas[i].id !== nextAreas[i].id) return false;
 	}
 	return true;
 }
@@ -432,6 +441,11 @@ export class GlDetailsReviewModePanel extends LitElement {
 					this._expandedAreas = new Set([this.result.focusAreas[0].id]);
 				}
 			}
+			// A first comment opens its area, so the reader sees it land
+			const hadComments = prev?.focusAreas.some(a => a.id === userFocusAreaId) === true;
+			if (!hadComments && next?.focusAreas.some(a => a.id === userFocusAreaId)) {
+				this._expandedAreas = new Set([...this._expandedAreas, userFocusAreaId]);
+			}
 		}
 	}
 
@@ -550,19 +564,30 @@ export class GlDetailsReviewModePanel extends LitElement {
 		return this._refineExpanded ?? this.refineMode ?? this.lastPrompt != null;
 	}
 
+	/** Whether anything but the reader's own comments is showing — with only those, there is no AI review yet
+	 *  to follow up on or discard, and the input runs the first one. */
+	private get hasReviewFindings(): boolean {
+		return this.result?.focusAreas.some(a => a.id !== userFocusAreaId) === true;
+	}
+
 	private renderRefineInput() {
 		if (!this.refineOpen) return nothing;
 
+		const reviewed = this.hasReviewFindings;
 		return html`<gl-ai-input
 			id="review-refine-input"
 			class="review-action-input"
 			multiline
 			active
 			rows="2"
-			button-label=${l10n.t('Follow Up')}
-			busy-label=${l10n.t('Updating review…')}
+			button-label=${reviewed ? l10n.t('Follow Up') : l10n.t('Review Diff')}
+			busy-label=${reviewed ? l10n.t('Updating review…') : l10n.t('Reviewing the diff…')}
 			event-name="review-refine"
-			placeholder=${l10n.t('Follow up — e.g. "Also check for error handling"')}
+			placeholder=${
+				reviewed
+					? l10n.t('Follow up — e.g. "Also check for error handling"')
+					: l10n.t('Instructions — e.g. "Focus on security and error handling"')
+			}
 			.recall=${this.lastPrompt}
 			.value=${this.refineDraft}
 		>
@@ -583,6 +608,7 @@ export class GlDetailsReviewModePanel extends LitElement {
 		if (!this.result) return nothing;
 
 		const reviewMarkdown = formatReviewAsMarkdown(this.result, this.formatOptions());
+		const reviewed = this.hasReviewFindings;
 		return html`<div class="review-footer">
 			<gl-button class="review-footer__primary" @click=${() => this.handleSendToChat('review')}>
 				<code-icon icon="comment-discussion-sparkle" slot="prefix"></code-icon>
@@ -608,7 +634,7 @@ export class GlDetailsReviewModePanel extends LitElement {
 				@click=${this.handleToggleRefine}
 			>
 				<code-icon icon="sparkle" slot="prefix"></code-icon>
-				${l10n.t('Follow-Up')}
+				${reviewed ? l10n.t('Follow-Up') : l10n.t('Review Diff')}
 				<code-icon class="review-footer__followup-chevron" icon="chevron-down" slot="suffix"></code-icon>
 			</gl-button>
 			<gl-button
@@ -628,7 +654,13 @@ export class GlDetailsReviewModePanel extends LitElement {
 				<code-icon icon=${this.deepReviewRunning ? 'loading' : 'robot'} slot="prefix"></code-icon
 				>${l10n.t('Review in Repo')}
 			</gl-button>
-			<gl-button appearance="secondary" @click=${this.handleDiscard}>${l10n.t('Discard Findings')}</gl-button>
+			${
+				reviewed
+					? html`<gl-button appearance="secondary" @click=${this.handleDiscard}
+							>${l10n.t('Discard Findings')}</gl-button
+						>`
+					: nothing
+			}
 		</div>`;
 	}
 
@@ -1938,33 +1970,25 @@ export class GlDetailsReviewModePanel extends LitElement {
 						icon=${isExpanded ? 'chevron-down' : 'chevron-right'}
 						class="review-area__chevron"
 					></code-icon>
-					<gl-tooltip
-						content=${
-							area.severity === 'critical'
-								? l10n.t('Critical Issue')
-								: area.severity === 'warning'
-									? l10n.t('Warning (Non-Critical)')
-									: l10n.t('Suggestion')
-						}
-						placement="bottom-start"
-					>
-						<span class="review-area__severity review-area__severity--${area.severity}">
-							<code-icon
-								icon=${
-									area.severity === 'critical'
-										? 'error'
-										: area.severity === 'warning'
-											? 'warning'
-											: 'info'
-								}
-							></code-icon>
-						</span>
-					</gl-tooltip>
+					${
+						area.id === userFocusAreaId
+							? html`<span class="review-area__severity"><code-icon icon="comment"></code-icon></span>`
+							: this.renderAreaSeverity(area)
+					}
 					<span class="review-area__label">${getReviewFocusAreaLabel(area)}</span>
 					<span class="review-area__file-count"
-						>${formatPlural(l10n.t('{count, plural, one{{count} file} other{{count} files}}'), {
-							count: this.getAreaFiles(area).length,
-						})}</span
+						>${
+							area.id === userFocusAreaId
+								? formatPlural(
+										l10n.t('{count, plural, one{{count} comment} other{{count} comments}}'),
+										{
+											count: area.findings?.length ?? 0,
+										},
+									)
+								: formatPlural(l10n.t('{count, plural, one{{count} file} other{{count} files}}'), {
+										count: this.getAreaFiles(area).length,
+									})
+						}</span
 					>
 				</button>
 				${this.renderFocusAreaActions(area, { isAnalyzed: isAnalyzed })}
@@ -2055,6 +2079,25 @@ export class GlDetailsReviewModePanel extends LitElement {
 		</div>`;
 	}
 
+	private renderAreaSeverity(area: AIReviewFocusArea) {
+		return html`<gl-tooltip
+			content=${
+				area.severity === 'critical'
+					? l10n.t('Critical Issue')
+					: area.severity === 'warning'
+						? l10n.t('Warning (Non-Critical)')
+						: l10n.t('Suggestion')
+			}
+			placement="bottom-start"
+		>
+			<span class="review-area__severity review-area__severity--${area.severity}">
+				<code-icon
+					icon=${area.severity === 'critical' ? 'error' : area.severity === 'warning' ? 'warning' : 'info'}
+				></code-icon>
+			</span>
+		</gl-tooltip>`;
+	}
+
 	private renderFocusAreaActions(area: AIReviewFocusArea, state: { isAnalyzed: boolean }) {
 		const areaMarkdown = state.isAnalyzed ? formatFocusAreaAsMarkdown(area, getClosedFindingIds(this.session)) : '';
 		const disabled = !state.isAnalyzed;
@@ -2130,16 +2173,24 @@ export class GlDetailsReviewModePanel extends LitElement {
 					: l10n.t('SUGGESTION');
 
 		const state = this.session?.findingStates.get(finding.id);
+		// The reader's own comment: no severity, no title — their words are the card
+		const isReader = finding.source === 'user';
 
 		return html`<div
-			class="review-finding ${state != null ? 'review-finding--closed' : ''}"
-			data-severity=${finding.severity}
+			class="review-finding ${state != null ? 'review-finding--closed' : ''} ${isReader ? 'review-finding--reader' : ''}"
+			data-severity=${isReader ? 'comment' : finding.severity}
 		>
 			<div class="review-finding__header">
-				<span class="review-finding__severity review-finding__severity--${finding.severity}">
-					${severityLabel}
-				</span>
-				<span class="review-finding__title">${getReviewFindingTitle(finding)}</span>
+				${
+					isReader
+						? html`<span class="review-finding__title review-finding__title--reader"
+								>${l10n.t('You')}</span
+							>`
+						: html`<span class="review-finding__severity review-finding__severity--${finding.severity}">
+									${severityLabel}
+								</span>
+								<span class="review-finding__title">${getReviewFindingTitle(finding)}</span>`
+				}
 				${
 					finding.source === 'agent'
 						? html`<span class="review-finding__source" title=${l10n.t('Reported by your agent')}
@@ -2193,14 +2244,18 @@ export class GlDetailsReviewModePanel extends LitElement {
 									>
 										<code-icon icon="check"></code-icon>
 									</gl-button>
-									<gl-button
-										appearance="toolbar"
-										density="compact"
-										tooltip=${l10n.t('Dismiss')}
-										@click=${() => this.handleFindingState(finding.id, 'dismissed')}
-									>
-										<code-icon icon="close"></code-icon>
-									</gl-button>`
+									${
+										isReader
+											? nothing
+											: html`<gl-button
+													appearance="toolbar"
+													density="compact"
+													tooltip=${l10n.t('Dismiss')}
+													@click=${() => this.handleFindingState(finding.id, 'dismissed')}
+												>
+													<code-icon icon="close"></code-icon>
+												</gl-button>`
+									}`
 							: html`<gl-button
 									appearance="toolbar"
 									density="compact"
@@ -2209,6 +2264,18 @@ export class GlDetailsReviewModePanel extends LitElement {
 								>
 									<code-icon icon="issue-reopened"></code-icon>
 								</gl-button>`
+					}
+					${
+						isReader
+							? html`<gl-button
+									appearance="toolbar"
+									density="compact"
+									tooltip=${l10n.t('Delete Comment')}
+									@click=${() => this.handleDeleteComment(finding.id)}
+								>
+									<code-icon icon="trash"></code-icon>
+								</gl-button>`
+							: nothing
 					}
 				</span>
 			</div>
@@ -2393,6 +2460,16 @@ export class GlDetailsReviewModePanel extends LitElement {
 					: nothing
 			}
 		</div>`;
+	}
+
+	private handleDeleteComment(findingId: string): void {
+		this.dispatchEvent(
+			new CustomEvent<ReviewCommentDeleteDetail>('review-comment-delete', {
+				detail: { findingId: findingId },
+				bubbles: true,
+				composed: true,
+			}),
+		);
 	}
 
 	private handleFindingState(findingId: string, state: ReviewFindingState | undefined): void {

@@ -795,6 +795,11 @@ export const reviewModePanelStyles = css`
 		border-left-color: var(--vscode-editorInfo-foreground);
 	}
 
+	/* The reader's own comment — no severity to color it by */
+	.review-finding[data-severity='comment'] {
+		border-left-color: var(--vscode-descriptionForeground);
+	}
+
 	.review-finding__header {
 		display: flex;
 		gap: 0.5rem;
@@ -845,6 +850,10 @@ export const reviewModePanelStyles = css`
 		font-size: var(--gl-font-base);
 		font-weight: 500;
 		overflow-wrap: anywhere;
+	}
+
+	.review-finding__title--reader {
+		color: var(--vscode-descriptionForeground);
 	}
 
 	.review-finding__description {

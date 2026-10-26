@@ -1,7 +1,13 @@
-import type { AIReviewResult, AIReviewSeverity } from '@gitlens/ai/models/results.js';
+import * as l10n from '@vscode/l10n';
+import type { AIReviewFinding, AIReviewResult, AIReviewSeverity } from '@gitlens/ai/models/results.js';
 import { getReviewFindingLocations } from '@gitlens/ai/models/results.js';
 import type { KeyMap } from '../../../../../config.js';
-import type { ReviewFindingNote, ReviewThreadItem, ScopeFile } from '../../../../plus/graph/graphService.js';
+import type {
+	ReviewCommentPlace,
+	ReviewFindingNote,
+	ReviewThreadItem,
+	ScopeFile,
+} from '../../../../plus/graph/graphService.js';
 
 export type ReviewFindingState = 'resolved' | 'dismissed';
 
@@ -19,6 +25,9 @@ export interface ReviewSession {
 	/** What was said about a finding after the fact — the reader's replies and the agent's additions, in
 	 *  the order they came. */
 	readonly notes: ReadonlyMap<string, readonly ReviewFindingNote[]>;
+	/** The reader's own comments on lines of the diff, in the order they were written — findings with
+	 *  source `user`. They belong to the review, not to an AI run: a new run or a discard keeps them. */
+	readonly comments?: readonly AIReviewFinding[];
 	/** A reading order the reader took from an orient pass; files not in it follow in tree order. */
 	readonly order?: readonly string[];
 }
@@ -314,12 +323,105 @@ export function withFindingNote(session: ReviewSession, findingId: string, note:
 	return { ...session, notes: next };
 }
 
-/** Drops every finding's state and notes — for a result that is being discarded; viewed marks and
- *  exclusions belong to the changeset and stay. */
+/** Drops the AI findings' states and notes — for a result that is being discarded; viewed marks,
+ *  exclusions and the reader's own comments (with their states and notes) belong to the review and stay. */
 export function withoutFindings(session: ReviewSession): ReviewSession {
-	if (session.findingStates.size === 0 && session.notes.size === 0) return session;
+	const kept = new Set(session.comments?.map(c => c.id));
+	const keep = <T>(map: ReadonlyMap<string, T>) => new Map([...map].filter(([id]) => kept.has(id)));
+	const findingStates = keep(session.findingStates);
+	const notes = keep(session.notes);
+	if (findingStates.size === session.findingStates.size && notes.size === session.notes.size) return session;
 
-	return { ...session, findingStates: emptyReviewSession.findingStates, notes: emptyReviewSession.notes };
+	return { ...session, findingStates: findingStates, notes: notes };
+}
+
+/** The focus area the reader's comments show under — ahead of the AI's, since they are the reader's own word. */
+export const userFocusAreaId = 'user';
+
+/** A comment the reader wrote on lines of the diff, as a finding: no severity to speak of (`suggestion`
+ *  only so the shared shape holds — it is never shown), no title, the text as the description. */
+export function createReviewComment(id: string, place: ReviewCommentPlace, text: string): AIReviewFinding {
+	return {
+		id: id,
+		severity: 'suggestion',
+		title: '',
+		description: text,
+		filePath: place.path,
+		lineRange: { start: place.line, end: place.lineEnd },
+		source: 'user',
+	};
+}
+
+export function withReviewComment(session: ReviewSession, comment: AIReviewFinding): ReviewSession {
+	const text = comment.description.trim();
+	if (!text || session.comments?.some(c => c.id === comment.id)) return session;
+
+	return { ...session, comments: [...(session.comments ?? []), { ...comment, description: text }] };
+}
+
+/** Rewrites a comment's text; an empty one leaves it as it was — removing is its own step. */
+export function withReviewCommentText(session: ReviewSession, id: string, text: string): ReviewSession {
+	const trimmed = text.trim();
+	const comment = session.comments?.find(c => c.id === id);
+	if (comment == null || !trimmed || comment.description === trimmed) return session;
+
+	return {
+		...session,
+		comments: session.comments!.map(c => (c.id === id ? { ...c, description: trimmed } : c)),
+	};
+}
+
+/** Removes a comment, its state and the notes on it. */
+export function withoutReviewComment(session: ReviewSession, id: string): ReviewSession {
+	if (!session.comments?.some(c => c.id === id)) return session;
+
+	const comments = session.comments.filter(c => c.id !== id);
+	const findingStates = new Map(session.findingStates);
+	findingStates.delete(id);
+	const notes = new Map(session.notes);
+	notes.delete(id);
+	return {
+		...session,
+		comments: comments.length > 0 ? comments : undefined,
+		findingStates: findingStates,
+		notes: notes,
+	};
+}
+
+let lastWithComments:
+	| { result: AIReviewResult | undefined; comments: readonly AIReviewFinding[]; merged: AIReviewResult }
+	| undefined;
+
+/** The review as the reader sees it: the AI's result with the reader's comments as a focus area of their own,
+ *  first. Without comments it is the result itself; with comments and no result, a result of just them.
+ *  The same inputs give the same object, so what keys on identity (the panel, the thread sync) holds still. */
+export function withReviewComments(
+	result: AIReviewResult | undefined,
+	session: ReviewSession | undefined,
+): AIReviewResult | undefined {
+	const comments = session?.comments;
+	if (!comments?.length) return result;
+
+	const last = lastWithComments;
+	if (last != null && last.result === result && last.comments === comments) return last.merged;
+
+	const merged: AIReviewResult = {
+		overview: result?.overview ?? '',
+		mode: result?.mode ?? 'single-pass',
+		focusAreas: [
+			{
+				id: userFocusAreaId,
+				label: l10n.t('Your comments'),
+				rationale: l10n.t('What you noted on the lines of the diff — for the fix and the later reviews.'),
+				severity: 'suggestion',
+				files: [...new Set(comments.map(c => c.filePath!))],
+				findings: comments,
+			},
+			...(result?.focusAreas.filter(a => a.id !== userFocusAreaId) ?? []),
+		],
+	};
+	lastWithComments = { result: result, comments: comments, merged: merged };
+	return merged;
 }
 
 export type ReviewReadingKey = 'next' | 'previous' | 'markViewed';

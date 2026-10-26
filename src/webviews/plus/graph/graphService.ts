@@ -395,7 +395,7 @@ export interface ReviewThreadItem {
 	title: string;
 	description: string;
 	state: ReviewThreadState;
-	source?: 'agent';
+	source?: 'agent' | 'user';
 	notes?: ReviewFindingNote[];
 }
 
@@ -406,12 +406,36 @@ export interface ReviewThreadsArgs {
 	items: ReviewThreadItem[];
 }
 
-export type ReviewThreadAction = 'resolve' | 'dismiss' | 'reopen' | 'sendToAgent' | 'reply' | 'askReviewer' | 'address';
+export type ReviewThreadAction =
+	| 'resolve'
+	| 'dismiss'
+	| 'reopen'
+	| 'sendToAgent'
+	| 'reply'
+	| 'askReviewer'
+	| 'address'
+	| 'comment'
+	| 'editComment'
+	| 'deleteComment';
+
+/** Where the reader opened a thread of their own: a review file and the lines on the diff's right side. */
+export interface ReviewCommentPlace {
+	path: string;
+	line: number;
+	lineEnd: number;
+}
 
 /** Actions taken on threads from the editor, append-only with a sequence so a panel that was hidden
- *  for a while applies exactly the ones it hasn't. A `reply` carries its text. */
+ *  for a while applies exactly the ones it hasn't. A `reply` carries its text; a `comment` — a thread the
+ *  reader opened on a line — carries its text and place, and its `findingId` is the new comment's. */
 export interface ReviewThreadActionsState {
-	actions: { seq: number; findingId: string; action: ReviewThreadAction; text?: string }[];
+	actions: {
+		seq: number;
+		findingId: string;
+		action: ReviewThreadAction;
+		text?: string;
+		place?: ReviewCommentPlace;
+	}[];
 }
 
 /** Which review file the editor is on and what it marked viewed along the way. `marked` is append-only

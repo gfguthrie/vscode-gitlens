@@ -8,6 +8,7 @@ import type {
 import { getReviewFindingLocations } from '@gitlens/ai/models/results.js';
 import type { ReviewFindingNote } from '../../../../plus/graph/graphService.js';
 import type { ReviewFindingState } from './reviewSession.js';
+import { userFocusAreaId } from './reviewSession.js';
 
 export interface ReviewFormatOptions {
 	scopeLabel: string;
@@ -45,7 +46,12 @@ function noteAuthor(author: ReviewFindingNote['author']): string {
 
 function formatFindingLines(finding: AIReviewFinding, notes?: readonly ReviewFindingNote[]): string[] {
 	const lines: string[] = [];
-	lines.push(`### ${severityPrefix(finding.severity)} ${getReviewFindingTitle(finding)}`);
+	// The reader's own comment has no severity or title — it is the reviewer speaking
+	lines.push(
+		finding.source === 'user'
+			? `### ${l10n.t("Reviewer's comment")}`
+			: `### ${severityPrefix(finding.severity)} ${getReviewFindingTitle(finding)}`,
+	);
 	lines.push('');
 	lines.push(finding.description);
 	const locations = getReviewFindingLocations(finding).map(l => {
@@ -90,7 +96,8 @@ export function formatFocusAreaAsMarkdown(
 	notes?: ReadonlyMap<string, readonly ReviewFindingNote[]>,
 ): string {
 	const lines: string[] = [];
-	lines.push(`## ${severityPrefix(area.severity)} ${getReviewFocusAreaLabel(area)}`);
+	const ofReader = area.id === userFocusAreaId;
+	lines.push(`## ${ofReader ? '' : `${severityPrefix(area.severity)} `}${getReviewFocusAreaLabel(area)}`);
 	lines.push('');
 	lines.push(area.rationale);
 
@@ -136,10 +143,17 @@ export function formatFindingForAgentContext(
 			return `${l.filePath}${range ? `:${range}` : ''}`;
 		})
 		.join(', ');
-	const head = [`id: ${finding.id}`, `[${severityLabel[finding.severity]}]`, state ?? 'open', location]
+	const isReader = finding.source === 'user';
+	const head = [
+		`id: ${finding.id}`,
+		isReader ? `[${l10n.t('REVIEWER COMMENT')}]` : `[${severityLabel[finding.severity]}]`,
+		state ?? 'open',
+		location,
+	]
 		.filter(Boolean)
 		.join(' · ');
-	const lines = [`- ${head}`, `  ${getReviewFindingTitle(finding)} — ${finding.description.replace(/\n+/g, ' ')}`];
+	const text = finding.description.replace(/\n+/g, ' ');
+	const lines = [`- ${head}`, `  ${isReader ? text : `${getReviewFindingTitle(finding)} — ${text}`}`];
 	for (const note of notes ?? []) {
 		lines.push(`  > ${noteAuthor(note.author)}: ${note.text.replace(/\n+/g, ' ')}`);
 	}

@@ -794,6 +794,48 @@ suite('DetailsWorkflowController — running-operations registry', () => {
 		]);
 	});
 
+	test('a comment opened on a line joins the session — before any run too — and can be handed off, edited and removed', () => {
+		const { host, state, controller } = setup({ repoPath: '/A', graphRepoPath: '/A' });
+		state.activeMode.set('review');
+		state.activeModeContext.set('wip');
+		state.activeModeRepoPath.set('/A');
+		state.activeModeSha.set(uncommitted);
+		const place = { path: 'a.ts', line: 2, lineEnd: 3 };
+
+		controller.review.applyThreadActions({
+			actions: [
+				{ seq: 1, findingId: 'user-1', action: 'comment', text: 'why here?', place: place },
+				{ seq: 2, findingId: 'user-1', action: 'askReviewer' },
+			],
+		});
+		let entry = host.crossPaneState.runningOperations.get().get(wipKey('/A'))?.review;
+		assert.deepStrictEqual(
+			entry?.session?.comments?.map(c => [c.id, c.source, c.description, c.filePath]),
+			[['user-1', 'user', 'why here?', 'a.ts']],
+		);
+		assert.strictEqual(entry?.execState, 'complete', 'the review opens to the comment');
+		assert.deepStrictEqual(host.handOffs, ['ask:user-1:']);
+
+		controller.review.applyThreadActions({
+			actions: [
+				{ seq: 1, findingId: 'user-1', action: 'comment', text: 'why here?', place: place },
+				{ seq: 2, findingId: 'user-1', action: 'askReviewer' },
+				{ seq: 3, findingId: 'user-1', action: 'editComment', text: 'why here, not in the caller?' },
+			],
+		});
+		entry = host.crossPaneState.runningOperations.get().get(wipKey('/A'))?.review;
+		assert.strictEqual(entry?.session?.comments?.[0].description, 'why here, not in the caller?');
+
+		controller.review.discard();
+		entry = host.crossPaneState.runningOperations.get().get(wipKey('/A'))?.review;
+		assert.strictEqual(entry?.session?.comments?.length, 1, "discarding the AI's findings keeps the comments");
+		assert.strictEqual(entry?.execState, 'complete', 'and the panel stays on them');
+
+		controller.review.deleteComment('user-1');
+		entry = host.crossPaneState.runningOperations.get().get(wipKey('/A'))?.review;
+		assert.strictEqual(entry?.session?.comments, undefined);
+	});
+
 	test('a second deep review starts its counters over, and a report lands on the review it was started from', () => {
 		const { host, state, controller } = setup({ repoPath: '/A', graphRepoPath: '/A' });
 		state.activeMode.set('review');

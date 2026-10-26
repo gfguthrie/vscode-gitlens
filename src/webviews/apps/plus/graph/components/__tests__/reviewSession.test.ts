@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import type { AIReviewResult } from '@gitlens/ai/models/results.js';
 import {
 	countReviewFindingStates,
+	createReviewComment,
 	emptyReviewSession,
 	getClosedFindingIds,
 	getReviewFileFindings,
@@ -11,12 +12,17 @@ import {
 	getReviewReadingShortcut,
 	getReviewThreadItems,
 	isReviewComplete,
+	userFocusAreaId,
 	withFileExcluded,
 	withFilesViewed,
 	withFindingNote,
 	withFindingState,
 	withoutFindings,
+	withoutReviewComment,
 	withReadingOrder,
+	withReviewComment,
+	withReviewComments,
+	withReviewCommentText,
 } from '../reviewSession.js';
 
 const a = { path: 'src/a.ts', contentId: 'a1' };
@@ -406,5 +412,81 @@ suite('reviewSession — walk order', () => {
 		assert.strictEqual(getReviewReadingShortcut('chorded', 'next', false), 'Ctrl+Shift+G ]');
 		assert.strictEqual(getReviewReadingShortcut('none', 'next', true), undefined);
 		assert.strictEqual(getReviewReadingShortcut(undefined, 'next', true), undefined);
+	});
+});
+
+suite("reviewSession — the reader's own comments", () => {
+	const place = { path: 'src/a.ts', line: 3, lineEnd: 4 };
+
+	test('a comment is a finding of the reader: no title, its text the description, at the lines it was written on', () => {
+		const session = withReviewComment(emptyReviewSession, createReviewComment('user-1', place, '  why here?  '));
+		assert.deepStrictEqual(session.comments, [
+			{
+				id: 'user-1',
+				severity: 'suggestion',
+				title: '',
+				description: 'why here?',
+				filePath: 'src/a.ts',
+				lineRange: { start: 3, end: 4 },
+				source: 'user',
+			},
+		]);
+		assert.strictEqual(withReviewComment(session, createReviewComment('user-2', place, ' ')), session);
+		assert.strictEqual(withReviewComment(session, createReviewComment('user-1', place, 'again')), session);
+	});
+
+	test('editing keeps the place; an emptied edit changes nothing; removing takes the state and notes along', () => {
+		let session = withReviewComment(emptyReviewSession, createReviewComment('user-1', place, 'why here?'));
+		session = withReviewCommentText(session, 'user-1', 'why here, not in the caller?');
+		assert.strictEqual(session.comments?.[0].description, 'why here, not in the caller?');
+		assert.strictEqual(withReviewCommentText(session, 'user-1', '  '), session);
+
+		session = withFindingState(session, 'user-1', 'resolved');
+		session = withFindingNote(session, 'user-1', { author: 'agent', text: 'moved it', at: 1 });
+		const removed = withoutReviewComment(session, 'user-1');
+		assert.strictEqual(removed.comments, undefined);
+		assert.strictEqual(removed.findingStates.has('user-1'), false);
+		assert.strictEqual(removed.notes.has('user-1'), false);
+	});
+
+	test("discarding the AI's findings keeps the reader's comments with their states and notes", () => {
+		let session = withReviewComment(emptyReviewSession, createReviewComment('user-1', place, 'why here?'));
+		session = withFindingState(session, 'user-1', 'resolved');
+		session = withFindingState(session, 'f1', 'dismissed');
+		session = withFindingNote(session, 'user-1', { author: 'user', text: 'done', at: 1 });
+		session = withFindingNote(session, 'f1', { author: 'user', text: 'intended', at: 2 });
+
+		const cleared = withoutFindings(session);
+		assert.deepStrictEqual([...cleared.findingStates], [['user-1', 'resolved']]);
+		assert.deepStrictEqual([...cleared.notes.keys()], ['user-1']);
+		assert.strictEqual(cleared.comments, session.comments);
+	});
+
+	test('the comments join the result as an area of their own, first, and stand alone without a run', () => {
+		const result = {
+			overview: 'o',
+			mode: 'single-pass',
+			focusAreas: [{ id: 'area', label: 'Area', rationale: '', severity: 'warning', files: [], findings: [] }],
+		} as unknown as AIReviewResult;
+		assert.strictEqual(withReviewComments(result, emptyReviewSession), result);
+
+		const session = withReviewComment(emptyReviewSession, createReviewComment('user-1', place, 'why here?'));
+		const merged = withReviewComments(result, session)!;
+		assert.deepStrictEqual(
+			merged.focusAreas.map(a => a.id),
+			[userFocusAreaId, 'area'],
+		);
+		assert.deepStrictEqual(merged.focusAreas[0].files, ['src/a.ts']);
+		assert.strictEqual(withReviewComments(result, session), merged, 'the same inputs give the same result');
+
+		const alone = withReviewComments(undefined, session)!;
+		assert.deepStrictEqual(
+			alone.focusAreas.map(a => a.id),
+			[userFocusAreaId],
+		);
+		assert.deepStrictEqual(
+			getReviewThreadItems(alone, session).map(i => [i.id, i.source, i.line, i.lineEnd]),
+			[['user-1', 'user', 3, 4]],
+		);
 	});
 });

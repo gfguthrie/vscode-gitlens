@@ -116,6 +116,7 @@ import type { GlDetailsComposeModePanel } from './gl-details-compose-mode-panel.
 import type { GlDetailsResolveModePanel } from './gl-details-resolve-mode-panel.js';
 import type {
 	ReviewAnalyzeAreaDetail,
+	ReviewCommentDeleteDetail,
 	ReviewCopiedDetail,
 	ReviewDeepReviewDetail,
 	ReviewFileExcludedDetail,
@@ -135,6 +136,7 @@ import {
 	getReviewProgress,
 	getReviewReadingOrder,
 	getReviewThreadItems,
+	withReviewComments,
 } from './reviewSession.js';
 import type {
 	PullRequestSheetPayload,
@@ -2393,12 +2395,22 @@ export class GlGraphDetailsPanel extends SignalWatcher(LitElement) {
 
 	/** {@link DetailsWorkflowHost.sendReviewFindingToAgent} */
 	sendReviewFindingToAgent(findingId: string, instructions?: string): void {
-		this.findReviewModePanel()?.sendFindingToAgent(findingId, instructions);
+		void this.settledReviewModePanel().then(panel => panel?.sendFindingToAgent(findingId, instructions));
 	}
 
 	/** {@link DetailsWorkflowHost.askReviewerAboutFinding} */
 	askReviewerAboutFinding(findingId: string, question?: string): void {
-		this.findReviewModePanel()?.askReviewer(findingId, question);
+		void this.settledReviewModePanel().then(panel => panel?.askReviewer(findingId, question));
+	}
+
+	/** The review panel once it has rendered what was just registered — a comment written and handed off in
+	 *  one step must already be among the panel's findings when the hand-off looks it up. */
+	private async settledReviewModePanel() {
+		await new Promise(resolve => setTimeout(resolve, 0));
+		await this.updateComplete;
+		const panel = this.findReviewModePanel();
+		await panel?.updateComplete;
+		return panel;
 	}
 
 	/** What the editor currently mirrors as review threads — identity of the inputs it was built from. */
@@ -2420,7 +2432,10 @@ export class GlGraphDetailsPanel extends SignalWatcher(LitElement) {
 				? this.engagedRunningOperation
 				: undefined;
 		const value = entry?.result ?? (entry != null ? this._actions.resources.review.value.get() : undefined);
-		const result = value != null && 'result' in value ? value.result : undefined;
+		const result = withReviewComments(
+			value != null && 'result' in value ? value.result : undefined,
+			entry?.session,
+		);
 		const findingStates = entry?.session?.findingStates;
 		const notes = entry?.session?.notes;
 		const scope = this._state.scope.get();
@@ -2859,7 +2874,10 @@ export class GlGraphDetailsPanel extends SignalWatcher(LitElement) {
 				this.engagedRunningOperation?.kind === 'review' ? this.engagedRunningOperation.session : undefined;
 			const progress = getReviewProgress(session, this._actions?.resources?.scopeFiles.value.get());
 			if (progress.total > 0) {
-				const result = value != null && 'result' in value ? value.result : undefined;
+				const result = withReviewComments(
+					value != null && 'result' in value ? value.result : undefined,
+					session,
+				);
 				return formatReviewProgress(progress, countReviewFindingStates(result, session), result != null);
 			}
 
@@ -4066,7 +4084,11 @@ export class GlGraphDetailsPanel extends SignalWatcher(LitElement) {
 		const reviewEntry = this.engagedRunningOperation?.kind === 'review' ? this.engagedRunningOperation : undefined;
 		const reviewResource = this._actions.resources.review;
 		const reviewValue = reviewEntry?.result ?? reviewResource.value.get();
-		const reviewResult = reviewValue && 'result' in reviewValue ? reviewValue.result : undefined;
+		// The reader's own comments ride along as a focus area of their own, with or without a run
+		const reviewResult = withReviewComments(
+			reviewValue && 'result' in reviewValue ? reviewValue.result : undefined,
+			reviewEntry?.session,
+		);
 		const reviewError =
 			(reviewValue && 'error' in reviewValue ? reviewValue.error.message : undefined) ??
 			reviewResource.error.get();
@@ -4139,6 +4161,8 @@ export class GlGraphDetailsPanel extends SignalWatcher(LitElement) {
 				this._workflow.review.setFindingState(e.detail.findingId, e.detail.state)}
 			@review-finding-note=${(e: CustomEvent<ReviewFindingNoteDetail>) =>
 				this._workflow.review.addFindingNote(e.detail.findingId, e.detail.text)}
+			@review-comment-delete=${(e: CustomEvent<ReviewCommentDeleteDetail>) =>
+				this._workflow.review.deleteComment(e.detail.findingId)}
 			@review-orient=${(e: CustomEvent<{ prompt?: string }>) => {
 				if (this._state.aiModel.get() == null) {
 					this._actions.switchAIModel('review');
