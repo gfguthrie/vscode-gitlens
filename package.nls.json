@@ -612,6 +612,7 @@
 	"command.gitlens.review.cancelCommentEdit.title": "Cancel",
 	"command.gitlens.review.deleteComment.title": "Delete Comment",
 	"command.gitlens.review.deleteThread.title": "Delete Thread",
+	"command.gitlens.review.discardComment.title": "Discard",
 	"command.gitlens.review.dismissFinding.title": "Dismiss Finding",
 	"command.gitlens.review.editComment.title": "Edit Comment",
 	"command.gitlens.review.markViewedAndNext.title": "Mark File as Viewed and Go to Next",

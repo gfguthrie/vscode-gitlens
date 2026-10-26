@@ -410,6 +410,7 @@ export type ContributedCommands =
 	| 'gitlens.review.cancelCommentEdit'
 	| 'gitlens.review.deleteComment'
 	| 'gitlens.review.deleteThread'
+	| 'gitlens.review.discardComment'
 	| 'gitlens.review.dismissFinding'
 	| 'gitlens.review.editComment'
 	| 'gitlens.review.markViewedAndNext:editor/title'

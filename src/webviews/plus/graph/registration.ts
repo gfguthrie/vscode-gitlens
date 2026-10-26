@@ -41,6 +41,7 @@ import {
 	cancelReviewCommentEdit,
 	deleteReviewComment,
 	deleteReviewThread,
+	discardReviewThread,
 	disposeReviewThreads,
 	editReviewComment,
 	runReviewThreadAction,
@@ -307,6 +308,7 @@ export function registerGraphWebviewCommands<T>(
 		registerCommand('gitlens.review.cancelCommentEdit', (comment?: Comment) => cancelReviewCommentEdit(comment)),
 		registerCommand('gitlens.review.deleteComment', (comment?: Comment) => deleteReviewComment(comment)),
 		registerCommand('gitlens.review.deleteThread', (thread?: CommentThread) => deleteReviewThread(thread)),
+		registerCommand('gitlens.review.discardComment', (reply?: CommentReply) => discardReviewThread(reply)),
 		{ dispose: () => disposeReviewThreads() },
 		registerCommand('gitlens.showGitHealth', async (...args: unknown[]) => {
 			// Canonical entry point for the Health surface — the palette, the Phase 3 banner CTA, and any

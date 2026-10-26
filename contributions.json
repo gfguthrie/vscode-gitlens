@@ -7370,6 +7370,18 @@
 				]
 			}
 		},
+		"gitlens.review.discardComment": {
+			"label": "Discard",
+			"menus": {
+				"comments/commentThread/context": [
+					{
+						"when": "commentController == gitlens.review && commentThreadIsEmpty",
+						"group": "inline",
+						"order": 4
+					}
+				]
+			}
+		},
 		"gitlens.review.dismissFinding": {
 			"label": "Dismiss Finding",
 			"icon": "$(close)",

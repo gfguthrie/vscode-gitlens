@@ -252,6 +252,14 @@ export function runReviewThreadReply(
 	owner?.reviewThreadAction(findingId, action, text || undefined);
 }
 
+/** Drops a thread the reader opened on a line but hasn't written in yet — what they typed goes with it. A
+ *  thread already in the review is left alone. */
+export function discardReviewThread(reply: CommentReply | undefined): void {
+	if (reply == null || threadFindings.has(reply.thread)) return;
+
+	reply.thread.dispose();
+}
+
 /** Takes a thread the editor made from the gutter into the review: it becomes the new comment's thread,
  *  shown at once with the words in it, and the comment goes to the graph. */
 function adoptReaderThread(thread: CommentThread, text: string): string | undefined {

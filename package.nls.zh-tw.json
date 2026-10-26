@@ -605,6 +605,7 @@
 	"command.gitlens.review.cancelCommentEdit.title": "取消",
 	"command.gitlens.review.deleteComment.title": "刪除留言",
 	"command.gitlens.review.deleteThread.title": "刪除討論",
+	"command.gitlens.review.discardComment.title": "捨棄",
 	"command.gitlens.review.dismissFinding.title": "忽略發現",
 	"command.gitlens.review.editComment.title": "編輯留言",
 	"command.gitlens.review.markViewedAndNext.title": "將檔案標記為已檢視並前往下一個",

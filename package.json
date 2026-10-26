@@ -9635,6 +9635,10 @@
 				"icon": "$(trash)"
 			},
 			{
+				"command": "gitlens.review.discardComment",
+				"title": "%command.gitlens.review.discardComment.title%"
+			},
+			{
 				"command": "gitlens.review.dismissFinding",
 				"title": "%command.gitlens.review.dismissFinding.title%",
 				"category": "%command.category%",
@@ -15668,6 +15672,10 @@
 					"when": "false"
 				},
 				{
+					"command": "gitlens.review.discardComment",
+					"when": "false"
+				},
+				{
 					"command": "gitlens.review.editComment",
 					"when": "false"
 				},
@@ -18287,6 +18295,11 @@
 					"command": "gitlens.review.replyAndAddress",
 					"when": "commentController == gitlens.review && gitlens:ai:allowed",
 					"group": "inline@3"
+				},
+				{
+					"command": "gitlens.review.discardComment",
+					"when": "commentController == gitlens.review && commentThreadIsEmpty",
+					"group": "inline@4"
 				}
 			],
 			"comments/commentThread/title": [

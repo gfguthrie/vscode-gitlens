@@ -605,6 +605,7 @@
 	"command.gitlens.review.cancelCommentEdit.title": "Cancelar",
 	"command.gitlens.review.deleteComment.title": "Eliminar comentario",
 	"command.gitlens.review.deleteThread.title": "Eliminar hilo",
+	"command.gitlens.review.discardComment.title": "Descartar",
 	"command.gitlens.review.dismissFinding.title": "Descartar hallazgo",
 	"command.gitlens.review.editComment.title": "Editar comentario",
 	"command.gitlens.review.markViewedAndNext.title": "Marcar el archivo como visto e ir al siguiente",
