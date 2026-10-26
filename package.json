@@ -18259,19 +18259,19 @@
 			"comments/comment/context": [
 				{
 					"command": "gitlens.review.saveComment",
-					"when": "commentController == gitlens.review && comment == user-comment",
+					"when": "commentController == gitlens.review && comment =~ /^(user-comment|note-user)$/",
 					"group": "inline@1"
 				},
 				{
 					"command": "gitlens.review.cancelCommentEdit",
-					"when": "commentController == gitlens.review && comment == user-comment",
+					"when": "commentController == gitlens.review && comment =~ /^(user-comment|note-user)$/",
 					"group": "inline@2"
 				}
 			],
 			"comments/comment/title": [
 				{
 					"command": "gitlens.review.editComment",
-					"when": "commentController == gitlens.review && comment == user-comment",
+					"when": "commentController == gitlens.review && comment =~ /^(user-comment|note-user)$/",
 					"group": "inline@1"
 				},
 				{

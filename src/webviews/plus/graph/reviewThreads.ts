@@ -329,7 +329,11 @@ export function saveReviewComment(comment: Comment | undefined): void {
 
 	found.text = text;
 	setUserCommentMode(comment, CommentMode.Preview, text);
-	owner?.reviewThreadAction(found.findingId, 'editComment', text);
+	if (found.noteId != null) {
+		owner?.reviewThreadAction(found.findingId, 'editNote', text, undefined, found.noteId);
+	} else {
+		owner?.reviewThreadAction(found.findingId, 'editComment', text);
+	}
 }
 
 /** Removes a comment from its thread: a note goes by itself; the first comment is the finding, so it takes

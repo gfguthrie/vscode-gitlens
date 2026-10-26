@@ -17,6 +17,7 @@ import {
 	withFileExcluded,
 	withFilesViewed,
 	withFindingNote,
+	withFindingNoteText,
 	withFindingState,
 	withoutFindingNote,
 	withoutFindings,
@@ -259,6 +260,16 @@ suite('reviewSession — notes', () => {
 		);
 		const ids = session.notes.get('f1')!.map(n => n.id ?? '');
 		assert.ok(ids.every(id => id !== '') && ids[0] !== ids[1], 'each note gets an id of its own');
+
+		const edited = withFindingNoteText(session, 'f1', ids[0], ' not a bug, see the caller ');
+		assert.deepStrictEqual(
+			edited.notes.get('f1')?.map(n => [n.id, n.text]),
+			[
+				[ids[0], 'not a bug, see the caller'],
+				[ids[1], 'it is — see the caller'],
+			],
+		);
+		assert.strictEqual(withFindingNoteText(edited, 'f1', ids[0], '  '), edited);
 
 		const without = withoutFindingNote(session, 'f1', ids[0]);
 		assert.deepStrictEqual(

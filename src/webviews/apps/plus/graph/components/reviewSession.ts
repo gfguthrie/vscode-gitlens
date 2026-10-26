@@ -326,6 +326,26 @@ export function withFindingNote(session: ReviewSession, findingId: string, note:
 	return { ...session, notes: next };
 }
 
+/** Rewrites one note's text; an empty one leaves it as it was — removing is its own step. */
+export function withFindingNoteText(
+	session: ReviewSession,
+	findingId: string,
+	noteId: string,
+	text: string,
+): ReviewSession {
+	const trimmed = text.trim();
+	const notes = session.notes.get(findingId);
+	const note = notes?.find(n => n.id === noteId);
+	if (note == null || !trimmed || note.text === trimmed) return session;
+
+	const next = new Map(session.notes);
+	next.set(
+		findingId,
+		notes!.map(n => (n.id === noteId ? { ...n, text: trimmed } : n)),
+	);
+	return { ...session, notes: next };
+}
+
 /** Removes one note from a finding's thread. */
 export function withoutFindingNote(session: ReviewSession, findingId: string, noteId: string): ReviewSession {
 	const notes = session.notes.get(findingId);

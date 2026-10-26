@@ -7337,7 +7337,7 @@
 			"menus": {
 				"comments/comment/context": [
 					{
-						"when": "commentController == gitlens.review && comment == user-comment",
+						"when": "commentController == gitlens.review && comment =~ /^(user-comment|note-user)$/",
 						"group": "inline",
 						"order": 2
 					}
@@ -7402,7 +7402,7 @@
 			"menus": {
 				"comments/comment/title": [
 					{
-						"when": "commentController == gitlens.review && comment == user-comment",
+						"when": "commentController == gitlens.review && comment =~ /^(user-comment|note-user)$/",
 						"group": "inline",
 						"order": 1
 					}
@@ -7503,7 +7503,7 @@
 			"menus": {
 				"comments/comment/context": [
 					{
-						"when": "commentController == gitlens.review && comment == user-comment",
+						"when": "commentController == gitlens.review && comment =~ /^(user-comment|note-user)$/",
 						"group": "inline",
 						"order": 1
 					}

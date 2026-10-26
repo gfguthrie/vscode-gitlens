@@ -889,12 +889,19 @@ suite('DetailsWorkflowController — running-operations registry', () => {
 				{ seq: 3, findingId: second, action: 'dismiss' },
 				{ seq: 4, findingId: first, action: 'deleteNote', noteId: noteId },
 				{ seq: 5, findingId: second, action: 'delete' },
+				{
+					seq: 6,
+					findingId: first,
+					action: 'editNote',
+					noteId: entry?.session?.notes.get(first)?.[1].id,
+					text: 'two, edited',
+				},
 			],
 		});
 		entry = host.crossPaneState.runningOperations.get().get(wipKey('/A'))?.review;
 		assert.deepStrictEqual(
 			entry?.session?.notes.get(first)?.map(n => n.text),
-			['two'],
+			['two, edited'],
 		);
 		assert.deepStrictEqual(findingIds(), [first]);
 		assert.strictEqual(entry?.session?.findingStates.has(second), false);

@@ -417,6 +417,7 @@ export type ReviewThreadAction =
 	| 'address'
 	| 'comment'
 	| 'editComment'
+	| 'editNote'
 	| 'delete'
 	| 'deleteNote';
 
@@ -430,7 +431,7 @@ export interface ReviewCommentPlace {
 /** Actions taken on threads from the editor, append-only with a sequence so a panel that was hidden
  *  for a while applies exactly the ones it hasn't. A `reply` carries its text; a `comment` — a thread the
  *  reader opened on a line — carries its text and place, and its `findingId` is the new comment's. `delete`
- *  removes the finding with all its threads; `deleteNote` one note in them, by `noteId`. */
+ *  removes the finding with all its threads; `editNote` and `deleteNote` act on one note in them, by `noteId`. */
 export interface ReviewThreadActionsState {
 	actions: {
 		seq: number;

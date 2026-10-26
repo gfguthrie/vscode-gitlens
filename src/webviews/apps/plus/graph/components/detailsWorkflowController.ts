@@ -50,6 +50,7 @@ import {
 	withFileExcluded,
 	withFilesViewed,
 	withFindingNote,
+	withFindingNoteText,
 	withFindingState,
 	withoutFindingNote,
 	withoutFindingRecord,
@@ -1403,6 +1404,11 @@ export class DetailsWorkflowController implements ReactiveController {
 						break;
 					case 'delete':
 						({ result, session } = withoutReviewFinding(result, session, findingId));
+						break;
+					case 'editNote':
+						if (noteId != null && text) {
+							session = withFindingNoteText(session, findingId, noteId, text);
+						}
 						break;
 					case 'deleteNote':
 						if (noteId != null) {
