@@ -927,7 +927,7 @@ curl -s -X POST '\${endpoint}' -H 'Authorization: Bearer \${token}' -H 'Content-
 
 \${priorFindings}
 
-When you have finished, POST {"done":true} to the same endpoint, then stop.
+When you have finished, POST {"done":true} to the same endpoint, then stop. The reader may ask about a finding while you are still reviewing: answer as that request says, then carry on — the review is not over until you POST {"done":true}.
 
 \${instructions}`,
 };
@@ -957,7 +957,7 @@ curl -s -X POST '\${endpoint}' -H 'Authorization: Bearer \${token}' -H 'Content-
 - Check every response: GitLens answers {"accepted":N}; anything else — an empty body, 401, 404 — means the review is no longer open, so stop and say so with the status you got
 - The endpoint is on this machine; if your tool sandbox blocks local network access, run the request outside the sandbox, or say so and give the answer in your reply instead
 - Do not change any files — this is a review, not a fix
-- Do not POST {"done":true}: the review stays open for the reader's next question`,
+- Do not POST {"done":true} for this answer: the thread stays open for the reader's next question. But if this question came while you were still running a review of these changes, answer it, then finish that review as it asked — its {"done":true} at the end included`,
 };
 
 export const reviewDetail: PromptTemplate<'review-detail'> = {
