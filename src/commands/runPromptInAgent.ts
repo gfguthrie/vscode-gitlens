@@ -3,7 +3,7 @@ import { Logger } from '@gitlens/utils/logger.js';
 import type { Sources } from '../constants.telemetry.js';
 import type { Container } from '../container.js';
 import type { AgentDescriptor } from '../plus/agents/agentDescriptor.js';
-import { runAgent } from '../plus/agents/agentDispatch.js';
+import { getLiveCliSessionAgent, runAgent } from '../plus/agents/agentDispatch.js';
 import { pickAgentStandalone, resolveDefaultAgentOrNotify } from '../plus/agents/agentPicker.js';
 import type { ChatMode } from '../plus/chat/utils/-webview/chat.utils.js';
 import { command } from '../system/-webview/command.js';
@@ -25,7 +25,7 @@ export interface RunPromptInAgentCommandArgs {
 	/** Telemetry source — emitted on dispatch-failure tracks for cross-surface attribution. */
 	source?: Sources;
 	/** CLI agents only: keep the CLI session under this key and send a later prompt with the same key
-	 *  into it as the next turn (see `RunAgentOptions.session`). */
+	 *  into it as the next turn (see `RunAgentOptions.session`) — while it runs, with no agent to choose. */
 	session?: string;
 }
 
@@ -35,7 +35,8 @@ export interface RunPromptInAgentCommandArgs {
 export type RunPromptInAgentOutcome = 'dispatched' | 'cancelled' | 'failed';
 
 /** Runs an already-rendered prompt in an agent (IDE chat, Claude extension, or detected CLI).
- *  Resolves the descriptor as `args.agent` > persisted `gitlens.ai.defaultAgent` > picker. */
+ *  Resolves the descriptor as `args.agent` > the agent of the live `args.session` > persisted
+ *  `gitlens.ai.defaultAgent` > picker. */
 @command()
 export class RunPromptInAgentCommand extends GlCommandBase {
 	private static readonly maxRetries = 2;
@@ -50,14 +51,21 @@ export class RunPromptInAgentCommand extends GlCommandBase {
 			throw new Error('Prompt is required for runPromptInAgent command');
 		}
 
-		const descriptor = await this.resolveAgent(args.agent);
+		const descriptor = await this.resolveAgent(args.agent, args.session);
 		if (descriptor == null) return 'cancelled';
 
 		return this.dispatch(descriptor, args);
 	}
 
-	private async resolveAgent(preselected: AgentDescriptor | undefined): Promise<AgentDescriptor | undefined> {
+	private async resolveAgent(
+		preselected: AgentDescriptor | undefined,
+		session: string | undefined,
+	): Promise<AgentDescriptor | undefined> {
 		if (preselected != null) return preselected;
+
+		// A session still running takes the prompt as its next turn — its agent was chosen when it started
+		const running = session != null ? getLiveCliSessionAgent(session) : undefined;
+		if (running != null) return running;
 
 		// `resolveDefaultAgentOrNotify` returns only descriptors that pass the supported-agents filter,
 		// so no extra availability check is needed here — `runAgent` re-validates at dispatch time.

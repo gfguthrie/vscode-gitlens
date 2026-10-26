@@ -104,9 +104,12 @@ export async function runAgent(
 	}
 }
 
-/** The CLI sessions kept for reuse, by the caller's key. An entry lives while its terminal is open and
- *  the CLI command the shell integration started in it has not ended. */
-const cliSessions = new Map<string, { terminal: Terminal; execution: TerminalShellExecution }>();
+/** The CLI sessions kept for reuse, by the caller's key, with the agent running in each. An entry lives
+ *  while its terminal is open and the CLI command the shell integration started in it has not ended. */
+const cliSessions = new Map<
+	string,
+	{ terminal: Terminal; execution: TerminalShellExecution; agent: AgentDescriptor & { kind: 'cli' } }
+>();
 let cliSessionWatcher: Disposable | undefined;
 
 function watchCliSessions(): void {
@@ -139,6 +142,12 @@ function getLiveCliSession(key: string): Terminal | undefined {
 		return undefined;
 	}
 	return session.terminal;
+}
+
+/** The agent running in the CLI session kept under `key`, while it still runs — a prompt for that session
+ *  can go straight to it, with no agent to choose. */
+export function getLiveCliSessionAgent(key: string): AgentDescriptor | undefined {
+	return getLiveCliSession(key) != null ? cliSessions.get(key)?.agent : undefined;
 }
 
 /** Shell integration arrives a moment after the terminal does; wait for it, but not forever. */
@@ -207,7 +216,11 @@ async function dispatchCli(
 		sessionKey != null ? await waitForShellIntegration(terminal, shellIntegrationWaitMs) : undefined;
 	if (integration != null && sessionKey != null) {
 		watchCliSessions();
-		cliSessions.set(sessionKey, { terminal: terminal, execution: integration.executeCommand(executable) });
+		cliSessions.set(sessionKey, {
+			terminal: terminal,
+			execution: integration.executeCommand(executable),
+			agent: descriptor,
+		});
 	} else {
 		terminal.sendText(executable, true);
 	}
