@@ -4132,8 +4132,6 @@ export class GlGraphDetailsPanel extends SignalWatcher(LitElement) {
 			.aiModel=${this._state.aiModel.get()}
 			.lastPrompt=${reviewEntry?.prompt}
 			.idleDraft=${reviewEntry?.idleDraft}
-			.refineMode=${reviewEntry?.refineMode}
-			.refineDraft=${reviewEntry?.refineDraft}
 			?forward-available=${this._state.reviewForwardAvailable.get()}
 			@review-run=${(e: CustomEvent<{ prompt?: string }>) => {
 				// Same model gate as compose — open the picker first when no model is set.
@@ -4223,28 +4221,6 @@ export class GlGraphDetailsPanel extends SignalWatcher(LitElement) {
 				// Clamp content overflow during the results→plain-view swap so the panel doesn't jump.
 				this.suppressContentOverflow();
 				this._workflow.review.discard();
-			}}
-			@review-refine=${(e: CustomEvent<{ prompt?: string }>) => {
-				// Same model gate as the initial run. A follow-up continues the conversation that
-				// produced the current findings against the same scope — in the ready state the
-				// scope picker isn't mounted, so `panel.selectedIds` is undefined and `runReview`
-				// falls back to the stored scope.
-				if (this._state.aiModel.get() == null) {
-					this._actions.switchAIModel('review');
-					return;
-				}
-
-				const panel = this.findReviewModePanel();
-				const excludedFiles = panel?.excludedFiles.size ? [...panel.excludedFiles] : undefined;
-				this._workflow.runReview(
-					this.effectiveRepoPath,
-					e.detail?.prompt,
-					excludedFiles,
-					this.getCurrentScopeFilesCount(),
-					panel?.selectedIds,
-					scopeItems ?? undefined,
-					{ mode: 'refine' },
-				);
 			}}
 			@scope-change=${(e: CustomEvent<{ selectedIds: string[] }>) =>
 				this.handleScopeChange(scopeItems, new Set(e.detail.selectedIds))}

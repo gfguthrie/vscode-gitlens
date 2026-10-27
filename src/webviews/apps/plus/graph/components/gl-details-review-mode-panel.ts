@@ -322,22 +322,20 @@ export class GlDetailsReviewModePanel extends LitElement {
 	lastPrompt?: string;
 
 	@property() idleDraft?: string;
-	@property({ attribute: false }) refineMode?: boolean;
-	@property() refineDraft?: string;
 
 	get idleDraftLive(): string | undefined {
-		if (this.status !== 'idle') return undefined;
+		if (this.status !== 'idle' && this.status !== 'ready') return undefined;
 		return this.renderRoot.querySelector<GlAiInput>('gl-ai-input.review-action-input')?.currentValue;
 	}
 
+	/** Review has no follow-up input — the instructions box is the same with findings as without, and
+	 *  its draft is the idle draft. */
 	get refineModeLive(): boolean {
-		return this.status === 'ready' && this.refineOpen;
+		return false;
 	}
 
 	get refineDraftLive(): string {
-		return this.status === 'ready'
-			? (this.renderRoot.querySelector<GlAiInput>('#review-refine-input')?.currentValue ?? '')
-			: '';
+		return '';
 	}
 
 	/** Files the AI run leaves out: the session's set-aside files plus the AI-ignore rules. Rebuilt in
@@ -384,9 +382,6 @@ export class GlDetailsReviewModePanel extends LitElement {
 	@state() private _loadingAreas = new Set<string>();
 	@state() private _errorAreas = new Set<string>();
 	@state() private _aiExcludedSet: ReadonlySet<string> | undefined;
-
-	/** Explicit user toggle of the follow-up input; `undefined` = no override (see `refineOpen`). */
-	@state() private _refineExpanded?: boolean;
 
 	override willUpdate(changedProperties: Map<string, unknown>): void {
 		if (changedProperties.has('aiExcludedFiles')) {
@@ -438,10 +433,6 @@ export class GlDetailsReviewModePanel extends LitElement {
 				this._showClosedFindings = false;
 				this._loadingAreas = new Set();
 				this._errorAreas = new Set();
-				// Drop any explicit follow-up toggle; a fresh result falls back to the default
-				// (open when this run has a prompt to recall — see `refineOpen`).
-				this._refineExpanded = undefined;
-
 				// Auto-expand when there's only a single focus area on a freshly-set result.
 				// Runs against the just-cleared expanded set so a Forward/anchor-switch with a
 				// single-area result lands fully visible.
@@ -502,7 +493,7 @@ export class GlDetailsReviewModePanel extends LitElement {
 			formatPlural(l10n.t('{count, plural, one{{count} finding open} other{{count} findings open}}'), {
 				count: open,
 			}),
-		)}${this.renderDeepReviewStrip()}${this.renderReadyFooter()}${this.renderRefineInput()}`;
+		)}${this.renderDeepReviewStrip()}${this.renderReadyActions()}${this.renderReviewInput()}`;
 	}
 
 	/** Which of the two panes below are folded to their headers — kept across remounts of the panel, the
@@ -565,58 +556,12 @@ export class GlDetailsReviewModePanel extends LitElement {
 		</gl-split-panel>`;
 	}
 
-	/** Disclosure state for the follow-up input: `undefined` follows the default (open once a
-	 *  refine has run — `lastPrompt` is set), `true`/`false` is an explicit user toggle that
-	 *  overrides the default until the next fresh result. */
-	get refineOpen(): boolean {
-		return this._refineExpanded ?? this.refineMode ?? this.lastPrompt != null;
-	}
-
-	/** Whether anything but the reader's own comments is showing — with only those, there is no AI review yet
-	 *  to follow up on or discard, and the input runs the first one. */
-	private get hasReviewFindings(): boolean {
-		return this.result?.focusAreas.some(a => a.id !== userFocusAreaId) === true;
-	}
-
-	private renderRefineInput() {
-		if (!this.refineOpen) return nothing;
-
-		const reviewed = this.hasReviewFindings;
-		return html`<gl-ai-input
-			id="review-refine-input"
-			class="review-action-input"
-			multiline
-			active
-			rows="2"
-			button-label=${reviewed ? l10n.t('Follow Up') : l10n.t('Review Diff')}
-			busy-label=${reviewed ? l10n.t('Updating review…') : l10n.t('Reviewing the diff…')}
-			event-name="review-refine"
-			placeholder=${
-				reviewed
-					? l10n.t('Follow up — e.g. "Also check for error handling"')
-					: l10n.t('Instructions — e.g. "Focus on security and error handling"')
-			}
-			.recall=${this.lastPrompt}
-			.value=${this.refineDraft}
-		>
-			<gl-ai-model-chip slot="footer" .model=${this.aiModel}></gl-ai-model-chip>
-		</gl-ai-input>`;
-	}
-
-	private async handleToggleRefine() {
-		const open = !this.refineOpen;
-		this._refineExpanded = open;
-		if (open) {
-			await this.updateComplete;
-			this.renderRoot.querySelector<HTMLElement>('#review-refine-input')?.focus();
-		}
-	}
-
-	private renderReadyFooter() {
+	/** What a review with findings adds to the instructions box below: the findings to the agent, or to the
+	 *  clipboard. */
+	private renderReadyActions() {
 		if (!this.result) return nothing;
 
 		const reviewMarkdown = formatReviewAsMarkdown(this.result, this.formatOptions());
-		const reviewed = this.hasReviewFindings;
 		return html`<div class="review-footer">
 			<gl-button class="review-footer__primary" @click=${() => this.handleSendToChat('review')}>
 				<code-icon icon="comment-discussion-sparkle" slot="prefix"></code-icon>
@@ -635,40 +580,6 @@ export class GlDetailsReviewModePanel extends LitElement {
 					<code-icon icon="copy"></code-icon>
 				</gl-button>
 			</gl-copy-container>
-			<gl-button
-				class="review-footer__followup"
-				appearance="secondary"
-				aria-expanded=${this.refineOpen ? 'true' : 'false'}
-				@click=${this.handleToggleRefine}
-			>
-				<code-icon icon="sparkle" slot="prefix"></code-icon>
-				${reviewed ? l10n.t('Follow-Up') : l10n.t('Review Diff')}
-				<code-icon class="review-footer__followup-chevron" icon="chevron-down" slot="suffix"></code-icon>
-			</gl-button>
-			<gl-button
-				appearance="secondary"
-				tooltip=${l10n.t('Orient: group and order the files with one line of context each — a map for your own read, not findings')}
-				?disabled=${this.orientRunning || this.getEffectiveFileCount() === 0}
-				@click=${this.handleOrient}
-			>
-				<code-icon icon=${this.orientRunning ? 'loading' : 'zap'} slot="prefix"></code-icon>${l10n.t('Orient')}
-			</gl-button>
-			<gl-button
-				appearance="secondary"
-				tooltip=${l10n.t('Review in Repo: hand the changes to your agent — it can build, test and trace call paths in the repository, and its findings stream back into this review')}
-				?disabled=${this.deepReviewRunning || this.getEffectiveFileCount() === 0}
-				@click=${this.handleDeepReview}
-			>
-				<code-icon icon=${this.deepReviewRunning ? 'loading' : 'robot'} slot="prefix"></code-icon
-				>${l10n.t('Review in Repo')}
-			</gl-button>
-			${
-				reviewed
-					? html`<gl-button appearance="secondary" @click=${this.handleDiscard}
-							>${l10n.t('Discard Findings')}</gl-button
-						>`
-					: nothing
-			}
 		</div>`;
 	}
 
@@ -939,74 +850,74 @@ export class GlDetailsReviewModePanel extends LitElement {
 						</gl-split-panel>`
 					: html`<div class="scope-files">${this.renderFileCuration()}</div>`
 			}
-			${this.renderDeepReviewStrip()}
-			${
-				this.aiEnabled
-					? html`<div class="review-input-row">
-							${keyed(
-								this.idleDraft ?? this.lastPrompt,
-								html`<gl-ai-input
-									class="review-action-input"
-									multiline
-									active
-									rows="2"
-									button-label=${l10n.t('Review Diff')}
-									busy-label=${l10n.t('Reviewing the diff…')}
-									event-name="review-run"
-									placeholder=${l10n.t('Instructions — e.g. "Focus on security and error handling"')}
-									.value=${this.idleDraft ?? this.lastPrompt}
-									?disabled=${!hasSelectedFiles}
-									@input=${this.onAiInputType}
-								>
-									<gl-ai-model-chip slot="footer" .model=${this.aiModel}></gl-ai-model-chip>
-									<gl-button
-										slot="footer"
-										class="review-orient__button"
-										appearance="toolbar"
-										density="compact"
-										tooltip=${l10n.t(
-											'Orient: group and order the files with one line of context each — a map for your own read, not findings',
-										)}
-										?disabled=${this.orientRunning || !hasSelectedFiles}
-										@click=${this.handleOrient}
-									>
-										<code-icon
-											icon=${this.orientRunning ? 'loading' : 'zap'}
-											slot="prefix"
-										></code-icon>
-										${this.orientRunning ? l10n.t('Orienting…') : l10n.t('Orient')}
-									</gl-button>
-									<gl-button
-										slot="footer"
-										class="review-deep__button"
-										appearance="toolbar"
-										density="compact"
-										tooltip=${
-											this.deepReviewUnavailableReason ??
-											l10n.t(
-												'Review in Repo: hand the changes to your agent — it can build, test and trace call paths in the repository, and its findings stream back into this review',
-											)
-										}
-										?disabled=${
-											this.deepReviewRunning ||
-											!hasSelectedFiles ||
-											this.deepReviewUnavailableReason != null
-										}
-										@click=${this.handleDeepReview}
-									>
-										<code-icon
-											icon=${this.deepReviewRunning ? 'loading' : 'robot'}
-											slot="prefix"
-										></code-icon>
-										${this.deepReviewRunning ? l10n.t('Reviewing in repo…') : l10n.t('Review in Repo')}
-									</gl-button>
-								</gl-ai-input>`,
-							)}
-							${this.orientError ? html`<div class="review-orient__error">${this.orientError}</div>` : nothing}
-						</div>`
-					: nothing
-			}
+			${this.renderDeepReviewStrip()} ${this.renderReviewInput(hasSelectedFiles)}
 		`;
+	}
+
+	/** The instructions box with its depths — Review Diff, Orient, Review in Repo — the same before a run and
+	 *  alongside its findings, so a review can be run again, re-planned or handed to the agent from either. */
+	private renderReviewInput(hasSelectedFiles = this.getEffectiveFileCount() > 0) {
+		return this.aiEnabled
+			? html`<div class="review-input-row">
+					${keyed(
+						this.idleDraft ?? this.lastPrompt,
+						html`<gl-ai-input
+							class="review-action-input"
+							multiline
+							active
+							rows="2"
+							button-label=${l10n.t('Review Diff')}
+							busy-label=${l10n.t('Reviewing the diff…')}
+							event-name="review-run"
+							placeholder=${l10n.t('Instructions — e.g. "Focus on security and error handling"')}
+							.value=${this.idleDraft ?? this.lastPrompt}
+							?disabled=${!hasSelectedFiles}
+							@input=${this.onAiInputType}
+						>
+							<gl-ai-model-chip slot="footer" .model=${this.aiModel}></gl-ai-model-chip>
+							<gl-button
+								slot="footer"
+								class="review-orient__button"
+								appearance="toolbar"
+								density="compact"
+								tooltip=${l10n.t(
+									'Orient: group and order the files with one line of context each — a map for your own read, not findings',
+								)}
+								?disabled=${this.orientRunning || !hasSelectedFiles}
+								@click=${this.handleOrient}
+							>
+								<code-icon icon=${this.orientRunning ? 'loading' : 'zap'} slot="prefix"></code-icon>
+								${this.orientRunning ? l10n.t('Orienting…') : l10n.t('Orient')}
+							</gl-button>
+							<gl-button
+								slot="footer"
+								class="review-deep__button"
+								appearance="toolbar"
+								density="compact"
+								tooltip=${
+									this.deepReviewUnavailableReason ??
+									l10n.t(
+										'Review in Repo: hand the changes to your agent — it can build, test and trace call paths in the repository, and its findings stream back into this review',
+									)
+								}
+								?disabled=${
+									this.deepReviewRunning ||
+									!hasSelectedFiles ||
+									this.deepReviewUnavailableReason != null
+								}
+								@click=${this.handleDeepReview}
+							>
+								<code-icon
+									icon=${this.deepReviewRunning ? 'loading' : 'robot'}
+									slot="prefix"
+								></code-icon>
+								${this.deepReviewRunning ? l10n.t('Reviewing in repo…') : l10n.t('Review in Repo')}
+							</gl-button>
+						</gl-ai-input>`,
+					)}
+					${this.orientError ? html`<div class="review-orient__error">${this.orientError}</div>` : nothing}
+				</div>`
+			: nothing;
 	}
 
 	/** Why the deep depth is off here, when the host has said it can't start — the button's tooltip. */
@@ -1325,10 +1236,6 @@ export class GlDetailsReviewModePanel extends LitElement {
 
 	private handleCancel = (): void => {
 		this.dispatchEvent(new CustomEvent('review-cancel', { bubbles: true, composed: true }));
-	};
-
-	private handleDiscard = (): void => {
-		this.dispatchEvent(new CustomEvent('review-discard', { bubbles: true, composed: true }));
 	};
 
 	private onAiInputType = (): void => {

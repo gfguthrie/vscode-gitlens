@@ -26,7 +26,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/) and this p
   - Your replies in a thread can be edited and any comment deleted from its thread &mdash; deleting the first one leaves the thread to the reply that follows it &mdash; and a whole thread can be deleted with its finding, the AI's or your own
   - Findings can be _Dismissed_ &mdash; fixed, wrong or not worth doing &mdash; and _Reopened_, and a review ends: once every file is viewed, a _Review complete_ summary offers _Copy Summary_ and _Address Remaining with Agent_
   - Each file in the checklist shows how many findings are open on it, in the color of the worst one, and the mark dims once they are all closed; clicking it opens the diff on the first open finding (or the first of all, once they are closed)
-  - The file list stays in place while an AI review runs and alongside its findings, and _Discard Findings_ drops only the AI's findings &mdash; your viewed progress and the review stay
+  - The file list stays in place while an AI review runs and alongside its findings, and so does the instructions box with _Review Diff_, _Orient_ and _Review in Repo_ &mdash; findings only add _Address Findings with Agent_ and _Copy Review Findings_ above it
   - Review mode no longer requires AI features to be enabled &mdash; only _Review Diff_ does
 
 ### Changed
