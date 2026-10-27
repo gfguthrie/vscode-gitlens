@@ -530,22 +530,48 @@ export class GlDetailsReviewModePanel extends LitElement {
 			</button>
 			<span class="review-pane-header__title">${l10n.t('Findings')}</span>
 			${description ? html`<span class="review-pane-header__description">${description}</span>` : nothing}
+			${this.status === 'ready' && this.result != null ? this.renderFindingsHeaderActions(this.result) : nothing}
+		</div>`;
+	}
+
+	/** What acts on all the findings at once, as icons: to the agent, to the clipboard, and — while there are
+	 *  AI or agent findings — away. The same as the actions above the instructions box. */
+	private renderFindingsHeaderActions(result: AIReviewResult) {
+		return html`<span class="review-pane-header__actions" @click=${(e: Event) => e.stopPropagation()}>
+			<gl-button
+				appearance="toolbar"
+				density="compact"
+				tooltip=${l10n.t('Address Findings with Agent')}
+				aria-label=${l10n.t('Address Findings with Agent')}
+				@click=${() => this.handleSendToChat('review')}
+			>
+				<code-icon icon="comment-discussion-sparkle"></code-icon>
+			</gl-button>
+			<gl-copy-container
+				appearance="toolbar"
+				.content=${formatReviewAsMarkdown(result, this.formatOptions())}
+				copyLabel=${l10n.t('Copy Review Findings')}
+				copiedLabel=${l10n.t('Copied!')}
+				placement="bottom"
+				timeout=${2500}
+				@click=${() => this.dispatchCopied('review')}
+			>
+				<code-icon icon="copy"></code-icon>
+			</gl-copy-container>
 			${
-				this.status === 'ready' && this.hasReviewFindings
-					? html`<span class="review-pane-header__actions" @click=${(e: Event) => e.stopPropagation()}>
-							<gl-button
-								appearance="toolbar"
-								density="compact"
-								tooltip=${l10n.t('Discard Findings')}
-								aria-label=${l10n.t('Discard Findings')}
-								@click=${this.handleDiscard}
-							>
-								<code-icon icon="trash"></code-icon>
-							</gl-button>
-						</span>`
+				this.hasReviewFindings
+					? html`<gl-button
+							appearance="toolbar"
+							density="compact"
+							tooltip=${l10n.t('Discard Findings')}
+							aria-label=${l10n.t('Discard Findings')}
+							@click=${this.handleDiscard}
+						>
+							<code-icon icon="trash"></code-icon>
+						</gl-button>`
 					: nothing
 			}
-		</div>`;
+		</span>`;
 	}
 
 	/** The reader's checklist stays up while the AI runs and after it answers — the findings are one
