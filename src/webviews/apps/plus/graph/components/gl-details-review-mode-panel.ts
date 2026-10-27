@@ -512,20 +512,40 @@ export class GlDetailsReviewModePanel extends LitElement {
 		}
 	}
 
-	private renderPaneHeader(pane: 'files' | 'findings', title: string, description?: string) {
-		const collapsed = pane === 'files' ? this._filesCollapsed : this._findingsCollapsed;
-		return html`<button
-			class="review-pane-header"
-			aria-expanded=${collapsed ? 'false' : 'true'}
-			@click=${() => this.togglePane(pane)}
-		>
-			<code-icon
-				class="review-pane-header__icon"
-				icon=${collapsed ? 'chevron-right' : 'chevron-down'}
-			></code-icon>
-			<span class="review-pane-header__title">${title}</span>
+	/** The Findings pane's header: folds the pane like the checklist's, and carries what acts on all the
+	 *  findings at once. */
+	private renderFindingsHeader(description?: string) {
+		const collapsed = this._findingsCollapsed;
+		return html`<div class="review-pane-header" @click=${() => this.togglePane('findings')}>
+			<button
+				class="review-pane-header__toggle"
+				aria-expanded=${collapsed ? 'false' : 'true'}
+				aria-label=${collapsed ? l10n.t('Expand Findings') : l10n.t('Collapse Findings')}
+				@click=${(e: Event) => {
+					e.stopPropagation();
+					this.togglePane('findings');
+				}}
+			>
+				<code-icon icon=${collapsed ? 'chevron-right' : 'chevron-down'}></code-icon>
+			</button>
+			<span class="review-pane-header__title">${l10n.t('Findings')}</span>
 			${description ? html`<span class="review-pane-header__description">${description}</span>` : nothing}
-		</button>`;
+			${
+				this.status === 'ready' && this.hasReviewFindings
+					? html`<span class="review-pane-header__actions" @click=${(e: Event) => e.stopPropagation()}>
+							<gl-button
+								appearance="toolbar"
+								density="compact"
+								tooltip=${l10n.t('Discard Findings')}
+								aria-label=${l10n.t('Discard Findings')}
+								@click=${this.handleDiscard}
+							>
+								<code-icon icon="trash"></code-icon>
+							</gl-button>
+						</span>`
+					: nothing
+			}
+		</div>`;
 	}
 
 	/** The reader's checklist stays up while the AI runs and after it answers — the findings are one
@@ -550,14 +570,19 @@ export class GlDetailsReviewModePanel extends LitElement {
 				</div>
 			</div>
 			<div slot="end" class="review-split__ai">
-				${this.renderPaneHeader('findings', l10n.t('Findings'), findingsDescription)}
+				${this.renderFindingsHeader(findingsDescription)}
 				<div class="review-split__body" ?hidden=${findings}>${aiContent}</div>
 			</div>
 		</gl-split-panel>`;
 	}
 
-	/** What a review with findings adds to the instructions box below: the findings to the agent, or to the
-	 *  clipboard. */
+	/** Whether anything but the reader's own comments is showing — what there is to discard. */
+	private get hasReviewFindings(): boolean {
+		return this.result?.focusAreas.some(a => a.id !== userFocusAreaId) === true;
+	}
+
+	/** What a review with findings adds to the instructions box below: the findings to the agent, to the
+	 *  clipboard, or away — the reader's own comments stay. */
 	private renderReadyActions() {
 		if (!this.result) return nothing;
 
@@ -580,6 +605,18 @@ export class GlDetailsReviewModePanel extends LitElement {
 					<code-icon icon="copy"></code-icon>
 				</gl-button>
 			</gl-copy-container>
+			${
+				this.hasReviewFindings
+					? html`<gl-button
+							appearance="secondary"
+							aria-label=${l10n.t('Discard Findings')}
+							tooltip=${l10n.t('Discard Findings')}
+							@click=${this.handleDiscard}
+						>
+							<code-icon icon="trash"></code-icon>
+						</gl-button>`
+					: nothing
+			}
 		</div>`;
 	}
 
@@ -1236,6 +1273,10 @@ export class GlDetailsReviewModePanel extends LitElement {
 
 	private handleCancel = (): void => {
 		this.dispatchEvent(new CustomEvent('review-cancel', { bubbles: true, composed: true }));
+	};
+
+	private handleDiscard = (): void => {
+		this.dispatchEvent(new CustomEvent('review-discard', { bubbles: true, composed: true }));
 	};
 
 	private onAiInputType = (): void => {

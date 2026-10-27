@@ -180,6 +180,13 @@ export const reviewModePanelStyles = css`
 		flex: none;
 	}
 
+	.review-pane-header__actions {
+		display: inline-flex;
+		flex: none;
+		margin-left: auto;
+		text-transform: none;
+	}
+
 	/* The checklist's header is the reading strip: the strip's own type and its steps, at the pane header's
 	   edges — chevron, then the text where every pane's title starts */
 	.review-pane-header--checklist {
