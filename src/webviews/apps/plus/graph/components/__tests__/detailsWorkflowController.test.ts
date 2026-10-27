@@ -1124,6 +1124,25 @@ suite('DetailsWorkflowController — running-operations registry', () => {
 			seqApplied: 2,
 			notesApplied: 1,
 		});
+
+		// Putting the strip away holds for the run — a later report of it doesn't bring it back; a new run does
+		controller.review.hideDeepReview();
+		const report = (run: number) =>
+			controller.review.applyDeepReviewState({
+				run: run,
+				anchor: anchor,
+				purpose: 'review',
+				active: true,
+				done: true,
+				findings: [],
+				notes: [],
+			});
+		report(1);
+		entry = host.crossPaneState.runningOperations.get().get(wipKey('/A'))?.review;
+		assert.strictEqual(entry?.deepReview?.hidden, true);
+		report(2);
+		entry = host.crossPaneState.runningOperations.get().get(wipKey('/A'))?.review;
+		assert.strictEqual(entry?.deepReview?.hidden, undefined);
 	});
 
 	test('abortRunningOperations aborts focus-area runs along with the overview run', () => {

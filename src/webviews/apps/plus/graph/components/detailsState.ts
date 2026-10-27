@@ -175,6 +175,8 @@ export type RunningOperation =
 				count: number;
 				seqApplied: number;
 				notesApplied?: number;
+				/** The reader put the status strip away for this run; the channel stays as it was */
+				hidden?: boolean;
 			};
 	  })
 	| (RunningOperationBase & {

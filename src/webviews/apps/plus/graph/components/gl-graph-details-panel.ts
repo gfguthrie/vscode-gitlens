@@ -4186,7 +4186,7 @@ export class GlGraphDetailsPanel extends SignalWatcher(LitElement) {
 					e.detail.priorFindings,
 					e.detail.focus,
 				)}
-			@review-deep-review-stop=${() => this._workflow.review.stopDeepReview()}
+			@review-deep-review-hide=${() => this._workflow.review.hideDeepReview()}
 			@review-reading-step=${(e: CustomEvent<ReviewReadingStepDetail>) =>
 				this._actions.stepReviewReading(e.detail.action, e.detail.path)}
 			@review-reading-order=${(e: CustomEvent<{ paths: string[] }>) => {

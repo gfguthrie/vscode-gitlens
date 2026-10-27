@@ -1327,7 +1327,14 @@ export class DetailsWorkflowController implements ReactiveController {
 				this.actions.sendTelemetryEvent('graphDetails/review/deepReview/failed', { reason: result.reason });
 			}
 		},
-		stopDeepReview: (): void => this.actions.stopDeepReview(),
+		/** Puts the deep review's status strip away — the channel stays open and what the agent reports
+		 *  still lands in the review. */
+		hideDeepReview: (): void => {
+			const entry = this.host.crossPaneState.runningOperations.get().get(anchorKey(this.currentAnchor()))?.review;
+			if (entry?.deepReview == null || entry.deepReview.hidden) return;
+
+			this.registerRunningOperation({ ...entry, deepReview: { ...entry.deepReview, hidden: true } });
+		},
 		/** Folds what the agent reported into the review's result — as its own focus area, so the panel,
 		 *  the threads and the counts take the findings like any other — applying only the ones past the
 		 *  last sequence this anchor saw. */
@@ -1373,6 +1380,7 @@ export class DetailsWorkflowController implements ReactiveController {
 				count: state.findings.length,
 				seqApplied: state.findings.at(-1)?.seq ?? applied,
 				notesApplied: state.notes.at(-1)?.seq ?? notesApplied,
+				...(sameRun && entry?.deepReview?.hidden ? { hidden: true } : {}),
 			};
 			if (state.done && entry?.deepReview?.done !== true) {
 				this.actions.sendTelemetryEvent('graphDetails/review/deepReview/finished', {
@@ -1595,9 +1603,13 @@ export class DetailsWorkflowController implements ReactiveController {
 			this.registerRunningOperation({
 				...entry,
 				focusAreaRuns: undefined,
-				deepReview: entry.deepReview?.active ? entry.deepReview : undefined,
+				// The agent's findings go with the rest, so its channel closes too; the strip stays put away
+				deepReview: entry.deepReview != null ? { ...entry.deepReview, hidden: true } : undefined,
 				session: entry.session != null ? withoutFindings(entry.session) : undefined,
 			});
+			if (entry.deepReview?.active) {
+				this.actions.stopDeepReview();
+			}
 			this.enterBackedNoResult('review');
 			this.actions.state.reviewPreErrorValue.set(undefined);
 			const after = this.host.crossPaneState.runningOperations.get().get(anchorKey(this.currentAnchor()))?.review;

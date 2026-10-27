@@ -260,11 +260,11 @@ export class GlDetailsReviewModePanel extends LitElement {
 
 	/** The delegated deep review on this anchor, while one is open or once it reported done. */
 	@property({ attribute: false })
-	deepReview?: { active: boolean; done: boolean; count: number; purpose?: 'review' | 'ask' };
+	deepReview?: { active: boolean; done: boolean; count: number; purpose?: 'review' | 'ask'; hidden?: boolean };
 
 	/** A whole review by the agent is under way — a channel open only for questions on findings is not one */
 	private get deepReviewRunning(): boolean {
-		return this.deepReview?.active === true && this.deepReview.purpose !== 'ask';
+		return this.deepReview?.active === true && !this.deepReview.done && this.deepReview.purpose !== 'ask';
 	}
 
 	/** Whether a deep review can start here at all; unknown (`undefined`) keeps the depth offered. */
@@ -1582,16 +1582,18 @@ export class GlDetailsReviewModePanel extends LitElement {
 		);
 	};
 
-	private handleDeepReviewStop = (): void => {
-		this.dispatchEvent(new CustomEvent('review-deep-review-stop', { bubbles: true, composed: true }));
+	private handleDeepReviewHide = (): void => {
+		this.dispatchEvent(new CustomEvent('review-deep-review-hide', { bubbles: true, composed: true }));
 	};
 
 	/** The deep review's status strip — while the agent works and once it reported done. */
 	private renderDeepReviewStrip() {
 		const deep = this.deepReview;
-		if (deep == null || (!deep.active && !deep.done) || deep.purpose === 'ask') return nothing;
+		if (deep?.hidden || deep == null || (!deep.active && !deep.done) || deep.purpose === 'ask') return nothing;
 
-		const count = deep.active
+		// Finished once the agent said so — its channel may stay open for what it reports later
+		const running = deep.active && !deep.done;
+		const count = running
 			? formatPlural(l10n.t('{count, plural, one{{count} finding so far} other{{count} findings so far}}'), {
 					count: deep.count,
 				})
@@ -1599,22 +1601,18 @@ export class GlDetailsReviewModePanel extends LitElement {
 					count: deep.count,
 				});
 		return html`<div class="review-deep" role="status">
-			<code-icon class="review-deep__icon" icon=${deep.active ? 'loading' : 'robot'}></code-icon>
+			<code-icon class="review-deep__icon" icon=${running ? 'loading' : 'robot'}></code-icon>
 			<span class="review-deep__text"
-				>${deep.active ? l10n.t('Review in Repo running') : l10n.t('Review in Repo finished')} · ${count}</span
+				>${running ? l10n.t('Review in Repo running') : l10n.t('Review in Repo finished')} · ${count}</span
 			>
-			${
-				deep.active
-					? html`<gl-button
-							appearance="toolbar"
-							density="compact"
-							tooltip=${l10n.t('Stop')}
-							@click=${this.handleDeepReviewStop}
-						>
-							<code-icon icon="close"></code-icon>
-						</gl-button>`
-					: nothing
-			}
+			<gl-button
+				appearance="toolbar"
+				density="compact"
+				tooltip=${l10n.t('Hide — what the agent reports still lands in the review')}
+				@click=${this.handleDeepReviewHide}
+			>
+				<code-icon icon="close"></code-icon>
+			</gl-button>
 		</div>`;
 	}
 

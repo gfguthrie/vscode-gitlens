@@ -152,7 +152,7 @@ suite('deepReview — the report channel', () => {
 		return { ipc: ipc, routes: routes };
 	}
 
-	test('owns the route while open, sequences what comes in, and closes itself on done', async () => {
+	test('owns the route while open, sequences what comes in, and takes reports after done until closed', async () => {
 		const { ipc, routes } = fakeIpc();
 		const changes: DeepReviewState[] = [];
 		const channel = new DeepReviewChannel(ipc, 1, anchor, s => changes.push(s), 'c1');
@@ -170,7 +170,12 @@ suite('deepReview — the report channel', () => {
 		assert.deepStrictEqual(await post({ findings: [{ title: 'three' }], done: true }, new URLSearchParams()), {
 			accepted: 1,
 		});
-		assert.strictEqual(routes.has(channel.route), false, 'done closes the route');
+		assert.strictEqual(routes.has(channel.route), true, 'done marks the review finished but keeps the route');
+		assert.deepStrictEqual(await post({ findings: [{ title: 'after talking it over' }] }, new URLSearchParams()), {
+			accepted: 1,
+		});
+		channel.close();
+		assert.strictEqual(routes.has(channel.route), false, 'closing takes the route down');
 
 		assert.deepStrictEqual(
 			changes.map(c => [c.run, c.anchor.repoPath]).every(([run, repo]) => run === 1 && repo === '/r'),
@@ -182,11 +187,13 @@ suite('deepReview — the report channel', () => {
 			[
 				[true, false, [1, 2], []],
 				[true, false, [1, 2], [[1, 'f9']]],
-				[false, true, [1, 2, 3], [[1, 'f9']]],
+				[true, true, [1, 2, 3], [[1, 'f9']]],
+				[true, true, [1, 2, 3, 4], [[1, 'f9']]],
+				[false, true, [1, 2, 3, 4], [[1, 'f9']]],
 			],
 		);
 		assert.strictEqual(channel.report({ findings: [{ title: 'late' }] }), 0, 'a report after close is dropped');
-		assert.strictEqual(channel.state.findings.length, 3);
+		assert.strictEqual(channel.state.findings.length, 4);
 	});
 
 	test("two channels take routes of their own, so neither takes the other's reports", async () => {

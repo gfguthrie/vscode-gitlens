@@ -19,8 +19,10 @@ export interface DeepReviewIpc {
 }
 
 /** One deep review's report channel: owns the IPC route while open, keeps what the agent reported
- *  (append-only, sequenced), and tells its owner on every change. The route closes on `done` or
- *  {@link close}; what was reported stays readable. */
+ *  (append-only, sequenced), and tells its owner on every change. `done` marks the review finished but
+ *  keeps the route — the reader may go on with the agent in its session and have it report more; the route
+ *  closes on {@link close} (a new review replaces it, the review is discarded, the graph goes). What was
+ *  reported stays readable. */
 export class DeepReviewChannel {
 	private readonly _state: DeepReviewState;
 	private _route: UnifiedDisposable | undefined;
@@ -84,8 +86,6 @@ export class DeepReviewChannel {
 		);
 		if (done) {
 			this._state.done = true;
-			this.close();
-			return accepted;
 		}
 
 		this.onChange(this.state);
