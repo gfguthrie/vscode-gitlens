@@ -9642,7 +9642,7 @@
 				"command": "gitlens.review.dismissFinding",
 				"title": "%command.gitlens.review.dismissFinding.title%",
 				"category": "%command.category%",
-				"icon": "$(close)"
+				"icon": "$(check)"
 			},
 			{
 				"command": "gitlens.review.editComment",

@@ -2228,7 +2228,7 @@ export class GlDetailsReviewModePanel extends LitElement {
 									tooltip=${l10n.t('Dismiss')}
 									@click=${() => this.handleFindingState(finding.id, 'dismissed')}
 								>
-									<code-icon icon="close"></code-icon>
+									<code-icon icon="check"></code-icon>
 								</gl-button>`
 							: html`<gl-button
 									appearance="toolbar"
